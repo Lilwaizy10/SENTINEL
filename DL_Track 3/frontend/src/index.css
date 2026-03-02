@@ -1,0 +1,140 @@
+/* SENTINEL Global Styles - Spec Section 4 */
+:root {
+  /* Severity Colors (Spec 4.3) */
+  --critical: #FF3B5C;
+  --high: #FF8C00;
+  --medium: #FFD600;
+  --low: #00BB66;
+  
+  /* UI Colors */
+  --bg-primary: #0f172a;      /* slate-900 */
+  --bg-secondary: #1e293b;    /* slate-800 */
+  --bg-tertiary: #334155;     /* slate-700 */
+  --text-primary: #f1f5f9;    /* slate-100 */
+  --text-secondary: #94a3b8;  /* slate-400 */
+  --border-color: #475569;    /* slate-600 */
+  --accent: #3b82f6;          /* blue-500 */
+  --success: #22c55e;         /* green-500 */
+  
+  /* Spacing & Layout */
+  --sidebar-width: 280px;
+  --volunteer-panel-width: 300px;
+  --header-height: 64px;
+  --card-radius: 12px;
+  --transition: all 0.2s ease;
+}
+
+/* Base Reset */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* Leaflet Map Fixes (Spec 4.4) */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--card-radius);
+  z-index: 1;
+}
+
+.leaflet-marker-icon {
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+}
+
+/* Severity Marker Pulsing Animation */
+@keyframes pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.7; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.marker-pulse {
+  animation: pulse 2s infinite;
+  border-radius: 50%;
+  border: 3px solid currentColor;
+}
+
+.marker-critical { color: var(--critical); }
+.marker-high { color: var(--high); }
+.marker-medium { color: var(--medium); }
+.marker-low { color: var(--low); }
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-color);
+}
+
+/* Utility Classes */
+.text-critical { color: var(--critical); }
+.text-high { color: var(--high); }
+.text-medium { color: var(--medium); }
+.text-low { color: var(--low); }
+
+.bg-critical { background-color: var(--critical); }
+.bg-high { background-color: var(--high); }
+.bg-medium { background-color: var(--medium); }
+.bg-low { background-color: var(--low); }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Loading Animation */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.loading-skeleton {
+  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 50%, var(--bg-secondary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 1024px) {
+  :root {
+    --sidebar-width: 240px;
+    --volunteer-panel-width: 260px;
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --sidebar-width: 100%;
+    --volunteer-panel-width: 100%;
+  }
+  .dashboard-grid {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto auto auto;
+  }
+}
