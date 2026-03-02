@@ -165,6 +165,7 @@ async def init_db() -> None:
                 sound_type TEXT,
                 sensor_id TEXT,
                 embedding_json TEXT,
+                context_json TEXT,
                 created_at TEXT
             )
         """)
