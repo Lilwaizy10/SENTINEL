@@ -1,116 +1,259 @@
-import React from "react";
-import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
+// src/components/Map.jsx
+import React, { useEffect, useRef } from "react";
+import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 
 /**
- * Map — Spec Section 4.4 & 10.5
- * Renders incident pins on a Leaflet map with severity-based pulsing markers.
- * Shows 200m volunteer search radius around active incidents.
+ * Map — Enhanced with Light Theme and Vibrant Markers
+ * Uses OpenStreetMap light tiles with colorful pulsing markers
  */
 
-// Custom pulsing marker icon (Spec Section 10.5)
+// Custom pulsing marker icon with vibrant colors based on severity
 const createPulseIcon = (severity) => {
   const colors = {
-    CRITICAL: '#FF3B5C',
-    HIGH: '#FF8C00',
-    MEDIUM: '#FFD600',
-    LOW: '#00BB66',
+    CRITICAL: "#dc2626",
+    HIGH: "#ea580c",
+    MEDIUM: "#eab308",
+    LOW: "#059669",
   };
   const color = colors[severity] || colors.LOW;
 
   return L.divIcon({
-    className: '',
+    className: "",
     html: `
-      <div style='position:relative; width:20px; height:20px;'>
+      <div style='position:relative; width:24px; height:24px;'>
         <div class='pulse-ring' style='
           position:absolute; border-radius:50%;
           border: 3px solid ${color};
           animation: pulse-out 1.5s ease-out infinite;
-          width:20px; height:20px; top:0; left:0;'/>
+          width:24px; height:24px; top:0; left:0;'/>
         <div style='
-          width:12px; height:12px; border-radius:50%;
-          background:${color}; margin:4px;'/>
+          width:14px; height:14px; border-radius:50%;
+          background: ${color}; margin:5px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.3);'/>
       </div>`,
-    iconSize: [20, 20],
+    iconSize: [24, 24],
   });
 };
 
-// Sensor marker (small dot)
+// Sensor marker (blue dot with white border)
 const sensorIcon = L.divIcon({
-  className: '',
-  html: `<div style='width:8px; height:8px; background:#64748b; border-radius:50%;'/>`,
-  iconSize: [8, 8],
+  className: "",
+  html: `<div style='width:12px; height:12px; background:#0ea5e9; border-radius:50%; border:2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.2);'/>`,
+  iconSize: [12, 12],
 });
 
-// Volunteer marker (blue person icon)
+// Volunteer marker (green person icon)
 const volunteerIcon = L.divIcon({
-  className: '',
-  html: `<div style='width:16px; height:16px; background:#3b82f6; border-radius:50%; border:2px solid white; display:grid; place-items:center; color:white; font-size:10px;'>👤</div>`,
-  iconSize: [16, 16],
+  className: "",
+  html: `<div style='width:24px; height:24px; background:#10b981; border-radius:50%; border:2px solid white; display:grid; place-items:center; color:white; font-size:14px; box-shadow: 0 2px 6px rgba(0,0,0,0.2);'>👤</div>`,
+  iconSize: [24, 24],
 });
 
-export default function Map({ incidents = [], volunteers = [], sensors = [], center = [1.3521, 103.8198] }) {
+// "You are here" marker (cyan with white border and shadow)
+const meIcon = L.divIcon({
+  className: "",
+  html: `<div style="
+    width:20px; height:20px; border-radius:50%;
+    background:#06b6d4; border:3px solid white;
+    box-shadow:0 0 0 3px rgba(6,182,212,0.3), 0 2px 8px rgba(0,0,0,0.2);
+  "></div>`,
+  iconSize: [20, 20],
+});
+
+// Helper component: fly to user location once (on first valid fix)
+function FlyToOnFirstFix({ myLocation, zoom = 16 }) {
+  const map = useMap();
+  const hasFlownRef = useRef(false);
+
+  useEffect(() => {
+    if (!myLocation || hasFlownRef.current) return;
+    const { lat, lng } = myLocation || {};
+    if (typeof lat === "number" && typeof lng === "number") {
+      hasFlownRef.current = true;
+      map.flyTo([lat, lng], zoom, { duration: 0.8 });
+    }
+  }, [myLocation, map, zoom]);
+
+  return null;
+}
+
+// Helper component: fly to focused incident
+function FlyToIncident({ focusIncident, zoom = 17 }) {
+  const map = useMap();
+  const hasFlownRef = useRef(false);
+
+  useEffect(() => {
+    if (!focusIncident || hasFlownRef.current) return;
+    
+    const pos = focusIncident.location?.lat
+      ? [focusIncident.location.lat, focusIncident.location.lng]
+      : [focusIncident.lat, focusIncident.lng];
+    
+    if (pos[0] && pos[1]) {
+      hasFlownRef.current = true;
+      map.flyTo(pos, zoom, { duration: 1.2 });
+    }
+  }, [focusIncident, map, zoom]);
+
+  return null;
+}
+
+export default function Map({
+  incidents = [],
+  volunteers = [],
+  sensors = [],
+  center = [1.3521, 103.8198],
+  myLocation = null,
+  focusIncident = null,
+}) {
   return (
-    <MapContainer 
-      center={center} 
-      zoom={12} 
-      style={{ height: "100%", width: "100%" }}
-      zoomControl={false}
+    <MapContainer
+      center={center}
+      zoom={13}
+      style={{ height: "100%", width: "100%", borderRadius: "12px" }}
+      zoomControl={true}
+      scrollWheelZoom={true}
+      doubleClickZoom={true}
+      dragging={true}
     >
+      {/* Light theme OpenStreetMap tiles */}
       <TileLayer
-        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       />
-      
-      {/* Sensor locations (small dots) */}
+
+      {/* ADDED: Fly to incident FIRST (higher priority than user location) */}
+      <FlyToIncident focusIncident={focusIncident} zoom={16} />
+
+      {/* Center once when we get the first location fix (only if no incident was focused) */}
+      <FlyToOnFirstFix myLocation={!focusIncident ? myLocation : null} zoom={15} />
+
+      {/* My current location */}
+      {myLocation &&
+        typeof myLocation.lat === "number" &&
+        typeof myLocation.lng === "number" && (
+          <>
+            <Marker
+              position={[myLocation.lat, myLocation.lng]}
+              icon={meIcon}
+              zIndexOffset={500}
+            >
+              <Popup>
+                <div style={{ minWidth: "200px" }}>
+                  <h4 style={{
+                    margin: "0 0 8px 0",
+                    color: "#06b6d4",
+                    fontSize: "1rem",
+                    fontWeight: 700
+                  }}>
+                    📍 You are here
+                  </h4>
+                  <p style={{ margin: "4px 0", fontSize: "0.875rem", color: "#64748b" }}>
+                    Lat: {myLocation.lat.toFixed(6)}, Lng: {myLocation.lng.toFixed(6)}
+                  </p>
+                  {typeof myLocation.accuracy === "number" && (
+                    <p style={{ margin: "4px 0", fontSize: "0.75rem", color: "#94a3b8" }}>
+                      Accuracy: ±{Math.round(myLocation.accuracy)} m
+                    </p>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+            {typeof myLocation.accuracy === "number" && myLocation.accuracy > 0 && (
+              <Circle
+                center={[myLocation.lat, myLocation.lng]}
+                radius={Math.min(myLocation.accuracy, 150)}
+                pathOptions={{
+                  color: "#06b6d4",
+                  fillColor: "#06b6d4",
+                  fillOpacity: 0.15,
+                  weight: 2,
+                }}
+              />
+            )}
+          </>
+        )}
+
+      {/* Sensor locations */}
       {sensors.map((sensor) => (
-        <Marker 
-          key={`sensor-${sensor.id}`} 
-          position={[sensor.lat, sensor.lng]}
-          icon={sensorIcon}
-        >
+        <Marker key={`sensor-${sensor.id}`} position={[sensor.lat, sensor.lng]} icon={sensorIcon}>
           <Popup>
-            <strong>Sensor: {sensor.id}</strong>
-            <br />
-            Zone: {sensor.zone}
-            <br />
-            Status: {sensor.status}
+            <div style={{ minWidth: "180px" }}>
+              <h4 style={{
+                margin: "0 0 8px 0",
+                color: "#0ea5e9",
+                fontSize: "0.9375rem",
+                fontWeight: 700
+              }}>
+                📡 Sensor: {sensor.id}
+              </h4>
+              <p style={{ margin: "4px 0", fontSize: "0.875rem", color: "#64748b" }}>
+                Zone: {sensor.zone}
+              </p>
+              <p style={{ margin: "4px 0", fontSize: "0.875rem", color: "#64748b" }}>
+                Status: <span style={{ color: sensor.status === "online" ? "#10b981" : "#ef4444", fontWeight: 600 }}>
+                  {sensor.status}
+                </span>
+              </p>
+            </div>
           </Popup>
         </Marker>
       ))}
 
       {/* Active incidents with pulsing markers */}
       {incidents
-        .filter((inc) => inc.status !== 'RESOLVED')
+        .filter((inc) => inc.status !== "RESOLVED")
         .map((incident) => {
-          const pos = incident.location?.lat 
+          const pos = incident.location?.lat
             ? [incident.location.lat, incident.location.lng]
             : [incident.lat, incident.lng];
-          
+
           return (
             <React.Fragment key={incident.id}>
-              <Marker 
-                position={pos}
-                icon={createPulseIcon(incident.severity)}
-              >
+              <Marker position={pos} icon={createPulseIcon(incident.severity)}>
                 <Popup>
-                  <strong style={{ color: getSeverityColor(incident.severity) }}>
-                    {incident.sound_type || incident.type}
-                  </strong>
-                  <br />
-                  Severity: {incident.severity}
-                  <br />
-                  Confidence: {(incident.confidence * 100).toFixed(0)}%
-                  <br />
-                  {incident.location?.description && (
-                    <>📍 {incident.location.description}</>
-                  )}
-                  <br />
-                  <small>Volunteers notified: {incident.volunteers_notified}</small>
+                  <div style={{ minWidth: "220px" }}>
+                    <h4 style={{
+                      margin: "0 0 8px 0",
+                      color: getSeverityColor(incident.severity),
+                      fontSize: "1rem",
+                      fontWeight: 700,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px"
+                    }}>
+                      {getSeverityIcon(incident.severity)} {incident.sound_type || incident.type}
+                    </h4>
+                    <p style={{ margin: "4px 0", fontSize: "0.875rem", color: "#64748b" }}>
+                      <strong style={{ color: "#1e293b" }}>Severity:</strong>{" "}
+                      <span style={{
+                        color: getSeverityColor(incident.severity),
+                        fontWeight: 600
+                      }}>
+                        {incident.severity}
+                      </span>
+                    </p>
+                    <p style={{ margin: "4px 0", fontSize: "0.875rem", color: "#64748b" }}>
+                      <strong style={{ color: "#1e293b" }}>Confidence:</strong>{" "}
+                      {(incident.confidence * 100).toFixed(1)}%
+                    </p>
+                    <p style={{ margin: "4px 0", fontSize: "0.875rem", color: "#64748b" }}>
+                      <strong style={{ color: "#1e293b" }}>Zone:</strong> {incident.location?.zone || "Unknown"}
+                    </p>
+                    {incident.location?.description && (
+                      <p style={{ margin: "4px 0", fontSize: "0.875rem", color: "#94a3b8" }}>
+                        📍 {incident.location.description}
+                      </p>
+                    )}
+                    <p style={{ margin: "8px 0 0 0", fontSize: "0.75rem", color: "#94a3b8" }}>
+                      👥 {incident.volunteers_notified} volunteer(s) notified
+                    </p>
+                  </div>
                 </Popup>
               </Marker>
-              
+
               {/* 200m volunteer search radius circle */}
               <Circle
                 center={pos}
@@ -118,9 +261,9 @@ export default function Map({ incidents = [], volunteers = [], sensors = [], cen
                 pathOptions={{
                   color: getSeverityColor(incident.severity),
                   fillColor: getSeverityColor(incident.severity),
-                  fillOpacity: 0.1,
-                  weight: 1,
-                  dashArray: '5, 10',
+                  fillOpacity: 0.08,
+                  weight: 2,
+                  dashArray: "6, 12",
                 }}
               />
             </React.Fragment>
@@ -129,7 +272,7 @@ export default function Map({ incidents = [], volunteers = [], sensors = [], cen
 
       {/* Volunteer positions */}
       {volunteers
-        .filter((v) => v.status === 'available' || v.status === 'notified')
+        .filter((v) => v.status === "available" || v.status === "notified" || v.status === "en_route" || v.status === "accepted")
         .map((volunteer) => (
           <Marker
             key={`vol-${volunteer.id}`}
@@ -137,13 +280,35 @@ export default function Map({ incidents = [], volunteers = [], sensors = [], cen
             icon={volunteerIcon}
           >
             <Popup>
-              <strong>{volunteer.name}</strong>
-              <br />
-              Status: {volunteer.status}
-              <br />
-              {volunteer.distance_m && (
-                <>Distance: {volunteer.distance_m}m</>
-              )}
+              <div style={{ minWidth: "180px" }}>
+                <h4 style={{
+                  margin: "0 0 8px 0",
+                  color: "#10b981",
+                  fontSize: "1rem",
+                  fontWeight: 700
+                }}>
+                  👤 {volunteer.name}
+                </h4>
+                <p style={{ margin: "4px 0", fontSize: "0.875rem", color: "#64748b" }}>
+                  Status: <span style={{
+                    color: getStatusColor(volunteer.status),
+                    fontWeight: 600,
+                    textTransform: "uppercase"
+                  }}>
+                    {volunteer.status.replace("_", " ")}
+                  </span>
+                </p>
+                {volunteer.distance_m && (
+                  <p style={{ margin: "4px 0", fontSize: "0.875rem", color: "#64748b" }}>
+                    📍 {volunteer.distance_m}m away
+                  </p>
+                )}
+                {volunteer.eta_minutes && (
+                  <p style={{ margin: "4px 0", fontSize: "0.875rem", color: "#64748b" }}>
+                    ⏱️ ETA: {volunteer.eta_minutes} min
+                  </p>
+                )}
+              </div>
             </Popup>
           </Marker>
         ))}
@@ -153,10 +318,32 @@ export default function Map({ incidents = [], volunteers = [], sensors = [], cen
 
 function getSeverityColor(severity) {
   const colors = {
-    CRITICAL: '#FF3B5C',
-    HIGH: '#FF8C00',
-    MEDIUM: '#FFD600',
-    LOW: '#00BB66',
+    CRITICAL: "#dc2626",
+    HIGH: "#ea580c",
+    MEDIUM: "#eab308",
+    LOW: "#059669",
   };
-  return colors[severity] || '#64748b';
+  return colors[severity] || "#64748b";
+}
+
+function getSeverityIcon(severity) {
+  const icons = {
+    CRITICAL: "💀",
+    HIGH: "⚠️",
+    MEDIUM: "⚡",
+    LOW: "ℹ️",
+  };
+  return icons[severity] || "•";
+}
+
+function getStatusColor(status) {
+  const colors = {
+    available: "#059669",
+    notified: "#0ea5e9",
+    accepted: "#10b981",
+    en_route: "#0284c7",
+    declined: "#ef4444",
+    offline: "#64748b",
+  };
+  return colors[status?.toLowerCase()] || "#64748b";
 }

@@ -2,12 +2,12 @@ import React, { useState } from "react";
 import IncidentCard from "./IncidentCard";
 
 /**
- * AlertFeed — Spec Section 4.4 & 10.4
- * Displays a live scrolling list of incoming incident alerts via WebSocket.
- * New cards animate in with slam animation. Critical incidents flash the dashboard.
+ * AlertFeed — Live Incident Alerts with Filtering
+ * Displays a live scrolling list of incoming incident alerts.
+ * New cards animate in with slam animation.
  */
 
-export default function AlertFeed({ incidents = [], onResolve, onSelect }) {
+export default function AlertFeed({ incidents = [], onSelect, onResolve, onNotes }) {
   const [filter, setFilter] = useState("all"); // all | active | resolved
 
   const filteredIncidents = incidents.filter((inc) => {
@@ -21,46 +21,52 @@ export default function AlertFeed({ incidents = [], onResolve, onSelect }) {
     return true;
   });
 
+  // Sort by timestamp (newest first)
+  const sortedIncidents = [...filteredIncidents].sort((a, b) => {
+    const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+    const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+    return timeB - timeA;
+  });
+
   return (
-    <div className="alert-feed-container">
-      <div className="alert-feed-header">
-        <h2>🚨 Live Alerts</h2>
-        <div className="filter-tabs">
-          <button
-            className={`filter-tab ${filter === "all" ? "active" : ""}`}
-            onClick={() => setFilter("all")}
-          >
-            All
-          </button>
-          <button
-            className={`filter-tab ${filter === "active" ? "active" : ""}`}
-            onClick={() => setFilter("active")}
-          >
-            Active
-          </button>
-          <button
-            className={`filter-tab ${filter === "resolved" ? "active" : ""}`}
-            onClick={() => setFilter("resolved")}
-          >
-            Resolved
-          </button>
-        </div>
+    <div className="sidebar-header">
+      <h2>🚨 Live Alerts</h2>
+      <div className="filter-tabs">
+        <button
+          className={`filter-tab ${filter === "all" ? "active" : ""}`}
+          onClick={() => setFilter("all")}
+        >
+          All
+        </button>
+        <button
+          className={`filter-tab ${filter === "active" ? "active" : ""}`}
+          onClick={() => setFilter("active")}
+        >
+          Active
+        </button>
+        <button
+          className={`filter-tab ${filter === "resolved" ? "active" : ""}`}
+          onClick={() => setFilter("resolved")}
+        >
+          Resolved
+        </button>
       </div>
 
       <div className="alert-feed">
-        {filteredIncidents.length === 0 ? (
+        {sortedIncidents.length === 0 ? (
           <div className="no-alerts">
-            <p>No alerts</p>
+            <p>No alerts to display</p>
             <small>Waiting for incidents...</small>
           </div>
         ) : (
-          filteredIncidents.map((incident, index) => (
+          sortedIncidents.map((incident, index) => (
             <IncidentCard
               key={incident.id}
               incident={incident}
-              isNew={index === 0}
+              isNew={index === 0 && filter === "all"}
               onClick={() => onSelect?.(incident)}
-              onResolve={() => onResolve?.(incident.id)}
+              onResolve={(id) => onResolve?.(id)}
+              onNotes={(id) => onNotes?.(id)}
             />
           ))
         )}

@@ -1,26 +1,64 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 
 /**
- * IncidentCard — Spec Section 4.4 & 10.4
+ * IncidentCard — Modern Design with Working Buttons
  * Compact summary card for a single incident with severity color coding.
  * New cards animate in with slam animation.
  */
 
-export default function IncidentCard({ incident, isNew = false, onClick, onResolve }) {
+export default function IncidentCard({ incident, isNew = false, onClick, onResolve, onNotes }) {
+  const [elapsedTime, setElapsedTime] = useState("");
+
+  // Update elapsed time every minute
+  useEffect(() => {
+    const updateElapsed = () => {
+      if (!incident.timestamp) return;
+      
+      const now = new Date();
+      const incidentTime = new Date(incident.timestamp);
+      const diffMs = now - incidentTime;
+      const diffMins = Math.floor(diffMs / 60000);
+      
+      if (diffMins < 1) {
+        setElapsedTime("Just now");
+      } else if (diffMins < 60) {
+        setElapsedTime(`${diffMins}m ago`);
+      } else {
+        const diffHours = Math.floor(diffMins / 60);
+        const remainingMins = diffMins % 60;
+        if (remainingMins === 0) {
+          setElapsedTime(`${diffHours}h ago`);
+        } else {
+          setElapsedTime(`${diffHours}h ${remainingMins}m ago`);
+        }
+      }
+    };
+
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 60000);
+    return () => clearInterval(interval);
+  }, [incident.timestamp]);
+
   if (!incident) return null;
 
   const severity = incident.severity?.toUpperCase?.() || "LOW";
   const soundType = incident.sound_type || incident.type || "Unknown";
   const location = incident.location?.description || incident.location || "Unknown location";
-  const timestamp = incident.timestamp ? new Date(incident.timestamp).toLocaleTimeString() : "Just now";
   const status = incident.status?.toUpperCase?.() || "OPEN";
   const confidence = incident.confidence ? Math.round(incident.confidence * 100) : 0;
 
   const severityColors = {
-    CRITICAL: "#FF3B5C",
-    HIGH: "#FF8C00",
-    MEDIUM: "#FFD600",
-    LOW: "#00BB66",
+    CRITICAL: "#dc2626",
+    HIGH: "#ea580c",
+    MEDIUM: "#eab308",
+    LOW: "#059669",
+  };
+
+  const severityBgColors = {
+    CRITICAL: "#fef2f2",
+    HIGH: "#fff7ed",
+    MEDIUM: "#fefce8",
+    LOW: "#ecfdf5",
   };
 
   const severityIcons = {
@@ -31,14 +69,24 @@ export default function IncidentCard({ incident, isNew = false, onClick, onResol
   };
 
   const getConfidenceColor = (conf) => {
-    if (conf >= 85) return "#FF3B5C";
-    if (conf >= 70) return "#FF8C00";
-    if (conf >= 55) return "#FFD600";
-    return "#00BB66";
+    if (conf >= 85) return "#10b981";
+    if (conf >= 70) return "#f59e0b";
+    if (conf >= 55) return "#eab308";
+    return "#059669";
+  };
+
+  const handleResolveClick = (e) => {
+    e.stopPropagation();
+    onResolve?.(incident.id);
+  };
+
+  const handleNotesClick = (e) => {
+    e.stopPropagation();
+    onNotes?.(incident.id);
   };
 
   return (
-    <div 
+    <div
       className={`incident-card incident-card-${severity.toLowerCase()} ${isNew ? "incident-card-new" : ""}`}
       onClick={onClick}
       style={{ borderLeftColor: severityColors[severity] }}
@@ -48,26 +96,30 @@ export default function IncidentCard({ incident, isNew = false, onClick, onResol
           <span>{severityIcons[severity]}</span>
           <span>{formatSoundType(soundType)}</span>
         </div>
-        <span className="status-badge" style={{ 
-          backgroundColor: severityColors[severity],
-          color: "white"
-        }}>
+        <span 
+          className="status-badge" 
+          style={{
+            backgroundColor: severityBgColors[severity],
+            color: severityColors[severity],
+            border: `1px solid ${severityColors[severity]}30`
+          }}
+        >
           {severity}
         </span>
       </div>
 
       <div className="incident-meta">
         <div className="incident-location">📍 {location}</div>
-        <div className="incident-time">🕐 {timestamp}</div>
+        <div className="incident-time">🕐 {elapsedTime}</div>
       </div>
 
-      {/* Confidence bar (Spec Section 10.3) */}
+      {/* Confidence bar with gradient fill */}
       <div className="confidence-bar">
-        <div 
+        <div
           className="confidence-fill"
-          style={{ 
+          style={{
             width: `${confidence}%`,
-            backgroundColor: getConfidenceColor(confidence)
+            background: `linear-gradient(90deg, ${getConfidenceColor(confidence)} 0%, ${confidence >= 70 ? '#10b981' : '#f59e0b'} 100%)`
           }}
         />
       </div>
@@ -76,9 +128,9 @@ export default function IncidentCard({ incident, isNew = false, onClick, onResol
       {/* Recommended response */}
       {incident.recommended_response && incident.recommended_response.length > 0 && (
         <div className="recommended-response">
-          <small>Recommended:</small>
+          <small>Recommended Response</small>
           <div className="response-tags">
-            {incident.recommended_response.slice(0, 2).map((r, i) => (
+            {incident.recommended_response.slice(0, 3).map((r, i) => (
               <span key={i} className="response-tag">{r}</span>
             ))}
           </div>
@@ -87,18 +139,27 @@ export default function IncidentCard({ incident, isNew = false, onClick, onResol
 
       {/* Actions */}
       <div className="incident-actions">
-        {status !== "RESOLVED" && (
+        {status !== "RESOLVED" ? (
           <>
-            <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); onResolve?.(); }}>
+            <button 
+              className="btn btn-success btn-sm" 
+              onClick={handleResolveClick}
+              title="Mark as resolved"
+            >
               ✓ Resolve
             </button>
-            <button className="btn btn-outline" onClick={(e) => { e.stopPropagation(); }}>
+            <button 
+              className="btn btn-outline btn-sm" 
+              onClick={handleNotesClick}
+              title="Add notes"
+            >
               📝 Notes
             </button>
           </>
-        )}
-        {status === "RESOLVED" && (
-          <span className="resolved-badge">✓ Resolved</span>
+        ) : (
+          <span className="resolved-badge">
+            ✓ Resolved
+          </span>
         )}
       </div>
 
@@ -113,6 +174,7 @@ export default function IncidentCard({ incident, isNew = false, onClick, onResol
 }
 
 function formatSoundType(type) {
+  if (!type) return "Unknown";
   return type
     .split("_")
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))

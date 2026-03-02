@@ -16,6 +16,7 @@ export default function ClassifyTool() {
   const [error, setError] = useState('');
   const [location, setLocation] = useState(null);
   const [incidentCreated, setIncidentCreated] = useState(false);
+  const [createdIncidentId, setCreatedIncidentId] = useState(null);
 
   // Get user location on mount
   useEffect(() => {
@@ -86,7 +87,13 @@ export default function ClassifyTool() {
 
       const data = await response.json();
       console.log('Classification result:', data);
-      
+
+      // Store incident ID if returned from backend
+      const incidentId = data.incident_id || data.id;
+      if (incidentId) {
+        setCreatedIncidentId(incidentId);
+      }
+
       setClassification({
         top_class: data.label || data.top_class,
         confidence: data.confidence,
@@ -94,7 +101,7 @@ export default function ClassifyTool() {
         severity: getSeverityFromClass(data.label || data.top_class),
         recommended_response: getRecommendedResponse(data.label || data.top_class)
       });
-      
+
       setIncidentCreated(true);
 
     } catch (err) {
@@ -134,7 +141,10 @@ export default function ClassifyTool() {
   };
 
   const handleViewOnDashboard = () => {
-    navigate('/');
+    // Navigate to dashboard with incident ID to focus on
+    navigate('/', {
+      state: { focusIncidentId: createdIncidentId }
+    });
   };
 
   return (
