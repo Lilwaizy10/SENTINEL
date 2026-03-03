@@ -18,22 +18,27 @@ const createPulseIcon = (severity) => {
     LOW: "#059669",
   };
   const color = colors[severity] || colors.LOW;
+  const isCritical = severity === "CRITICAL";
+  const size = isCritical ? 32 : 24;
+  const innerSize = isCritical ? 18 : 14;
+  const margin = isCritical ? 7 : 5;
 
   return L.divIcon({
     className: "",
     html: `
-      <div style='position:relative; width:24px; height:24px;'>
+      <div style='position:relative; width:${size}px; height:${size}px;'>
         <div class='pulse-ring' style='
           position:absolute; border-radius:50%;
           border: 3px solid ${color};
-          animation: pulse-out 1.5s ease-out infinite;
-          width:24px; height:24px; top:0; left:0;'/>
+          animation: ${isCritical ? 'pulseBorder 2s infinite' : 'pulse-out 1.5s ease-out infinite'};
+          width:${size}px; height:${size}px; top:0; left:0;'/>
         <div style='
-          width:14px; height:14px; border-radius:50%;
-          background: ${color}; margin:5px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.3);'/>
+          width:${innerSize}px; height:${innerSize}px; border-radius:50%;
+          background: ${color}; margin:${margin}px;
+          box-shadow: ${isCritical ? '0 0 20px 4px rgba(220, 38, 38, 0.5)' : '0 2px 8px rgba(0,0,0,0.3)'};
+          ${isCritical ? 'animation: pulse 1s ease-in-out infinite;' : ''}'/>
       </div>`,
-    iconSize: [24, 24],
+    iconSize: [size, size],
   });
 };
 
@@ -62,7 +67,83 @@ const meIcon = L.divIcon({
   iconSize: [20, 20],
 });
 
-// Helper component: fly to user location once (on first valid fix)
+// Helper component to open popup for focused incident
+function OpenIncidentPopup({ focusIncident, incidents }) {
+  const map = useMap();
+  
+  useEffect(() => {
+    if (!focusIncident || !map) return;
+    
+    // Find the incident in the incidents array
+    const incident = incidents.find(inc => 
+      inc.id === focusIncident.id || 
+      (focusIncident.id && inc.id === focusIncident.id)
+    );
+    
+    if (!incident) return;
+    
+    // Get coordinates
+    const lat = incident.location?.lat || incident.lat;
+    const lng = incident.location?.lng || incident.lng;
+    
+    if (!lat || !lng) return;
+    
+    // Small delay to ensure map is ready
+    setTimeout(() => {
+      const severityColor = getSeverityColor(incident.severity);
+      const severityIcon = getSeverityIcon(incident.severity);
+      
+      // Open popup at the incident location
+      const popupContent = `
+        <div style="min-width: 200px; padding: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+            <span style="font-size: 20px;">${severityIcon}</span>
+            <strong style="color: ${severityColor}; font-size: 14px;">
+              ${incident.sound_type || incident.type}
+            </strong>
+          </div>
+          <div style="margin-bottom: 4px;">
+            <span style="color: #64748b; font-size: 12px;">Severity:</span>
+            <span style="color: ${severityColor}; font-weight: 600; margin-left: 4px; font-size: 12px;">
+              ${incident.severity}
+            </span>
+          </div>
+          <div style="margin-bottom: 4px;">
+            <span style="color: #64748b; font-size: 12px;">Confidence:</span>
+            <span style="color: #1e293b; margin-left: 4px; font-size: 12px;">
+              ${Math.round((incident.confidence || 0) * 100)}%
+            </span>
+          </div>
+          ${incident.location?.description ? `
+            <div style="margin-bottom: 4px;">
+              <span style="color: #64748b; font-size: 12px;">📍</span>
+              <span style="color: #1e293b; margin-left: 4px; font-size: 12px;">
+                ${incident.location.description}
+              </span>
+            </div>
+          ` : ''}
+          <div style="margin-top: 8px; font-size: 11px; color: #94a3b8;">
+            👥 ${incident.volunteers_notified || 0} notified
+          </div>
+        </div>
+      `;
+      
+      L.popup({ 
+        closeButton: true,
+        autoClose: false,
+        className: 'incident-popup'
+      })
+        .setLatLng([lat, lng])
+        .setContent(popupContent)
+        .openOn(map);
+        
+    }, 300);
+  }, [focusIncident, incidents, map]);
+  
+  return null;
+}
+
+// Helper component: fly to user location once
 function FlyToOnFirstFix({ myLocation, zoom = 16 }) {
   const map = useMap();
   const hasFlownRef = useRef(false);
@@ -79,21 +160,27 @@ function FlyToOnFirstFix({ myLocation, zoom = 16 }) {
   return null;
 }
 
-// Helper component: fly to focused incident
-function FlyToIncident({ focusIncident, zoom = 17 }) {
+// Helper component to fly to incident
+function FlyToIncident({ focusIncident, zoom = 16 }) {
   const map = useMap();
   const hasFlownRef = useRef(false);
 
   useEffect(() => {
+    console.log('🗺️ FlyToIncident called with:', focusIncident);
+    
     if (!focusIncident || hasFlownRef.current) return;
+
+    const lat = focusIncident.location?.lat || focusIncident.lat;
+    const lng = focusIncident.location?.lng || focusIncident.lng;
     
-    const pos = focusIncident.location?.lat
-      ? [focusIncident.location.lat, focusIncident.location.lng]
-      : [focusIncident.lat, focusIncident.lng];
-    
-    if (pos[0] && pos[1]) {
+    console.log('🗺️ Extracted coordinates:', lat, lng);
+
+    if (typeof lat === "number" && typeof lng === "number") {
       hasFlownRef.current = true;
-      map.flyTo(pos, zoom, { duration: 1.2 });
+      console.log('🗺️ Flying to:', [lat, lng], 'zoom:', zoom);
+      map.flyTo([lat, lng], zoom, { duration: 0.8 });
+    } else {
+      console.warn('🗺️ Invalid coordinates:', { lat, lng });
     }
   }, [focusIncident, map, zoom]);
 
@@ -118,16 +205,18 @@ export default function Map({
       doubleClickZoom={true}
       dragging={true}
     >
-      {/* Light theme OpenStreetMap tiles */}
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
       />
 
-      {/* ADDED: Fly to incident FIRST (higher priority than user location) */}
+      {/* Fly to incident first */}
       <FlyToIncident focusIncident={focusIncident} zoom={16} />
+      
+      {/* Open popup for focused incident */}
+      <OpenIncidentPopup focusIncident={focusIncident} incidents={incidents} />
 
-      {/* Center once when we get the first location fix (only if no incident was focused) */}
+      {/* Center on user location only if no incident */}
       <FlyToOnFirstFix myLocation={!focusIncident ? myLocation : null} zoom={15} />
 
       {/* My current location */}
@@ -204,55 +293,25 @@ export default function Map({
 
       {/* Active incidents with pulsing markers */}
       {incidents
-        .filter((inc) => inc.status !== "RESOLVED")
+        .filter((inc) => {
+          if (!inc || typeof inc !== 'object') return false;
+          if (inc.status === "RESOLVED") return false;
+          const hasLocation = inc.location?.lat || inc.lat;
+          return hasLocation;
+        })
         .map((incident) => {
           const pos = incident.location?.lat
             ? [incident.location.lat, incident.location.lng]
             : [incident.lat, incident.lng];
 
+          if (!pos || !pos[0] || !pos[1]) {
+            console.warn('Skipping incident with invalid position:', incident.id);
+            return null;
+          }
+
           return (
             <React.Fragment key={incident.id}>
-              <Marker position={pos} icon={createPulseIcon(incident.severity)}>
-                <Popup>
-                  <div style={{ minWidth: "220px" }}>
-                    <h4 style={{
-                      margin: "0 0 8px 0",
-                      color: getSeverityColor(incident.severity),
-                      fontSize: "1rem",
-                      fontWeight: 700,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "6px"
-                    }}>
-                      {getSeverityIcon(incident.severity)} {incident.sound_type || incident.type}
-                    </h4>
-                    <p style={{ margin: "4px 0", fontSize: "0.875rem", color: "#64748b" }}>
-                      <strong style={{ color: "#1e293b" }}>Severity:</strong>{" "}
-                      <span style={{
-                        color: getSeverityColor(incident.severity),
-                        fontWeight: 600
-                      }}>
-                        {incident.severity}
-                      </span>
-                    </p>
-                    <p style={{ margin: "4px 0", fontSize: "0.875rem", color: "#64748b" }}>
-                      <strong style={{ color: "#1e293b" }}>Confidence:</strong>{" "}
-                      {(incident.confidence * 100).toFixed(1)}%
-                    </p>
-                    <p style={{ margin: "4px 0", fontSize: "0.875rem", color: "#64748b" }}>
-                      <strong style={{ color: "#1e293b" }}>Zone:</strong> {incident.location?.zone || "Unknown"}
-                    </p>
-                    {incident.location?.description && (
-                      <p style={{ margin: "4px 0", fontSize: "0.875rem", color: "#94a3b8" }}>
-                        📍 {incident.location.description}
-                      </p>
-                    )}
-                    <p style={{ margin: "8px 0 0 0", fontSize: "0.75rem", color: "#94a3b8" }}>
-                      👥 {incident.volunteers_notified} volunteer(s) notified
-                    </p>
-                  </div>
-                </Popup>
-              </Marker>
+              <Marker position={pos} icon={createPulseIcon(incident.severity || 'LOW')} />
 
               {/* 200m volunteer search radius circle */}
               <Circle

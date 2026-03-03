@@ -64,6 +64,8 @@ DL_Track 3/
 │   │   └── mock/
 │   │       └── data.js
 │   └── package.json
+├── testbench/
+│   └── TESTING_GUIDE.md     # Step-by-step testing instructions for graders
 └── edge/
     └── pi_sensor.py         # Raspberry Pi edge device code
 ```
@@ -130,11 +132,9 @@ The system implements 5 layers of false positive reduction:
 2. Start simulator: `python backend/simulator.py`
 3. Watch alert cards appear in real-time via WebSocket
 4. Click incident cards to see details
-5. Press **ACTIVATE LIVE DEMO** to enable microphone
-6. Make sounds (clap, tap glass) to see live classification
-7. Resolve incidents and watch stats update
+5. Press **Audio Classifier** and attach an audio of your choice(e.g. Explosion sound(included in the test bench)) to test out the sound system.
 
-## 🛠️ Tech Stack
+A## 🛠️ Tech Stack
 
 **Frontend:**
 - React 18 + React Router
@@ -155,6 +155,31 @@ The system implements 5 layers of false positive reduction:
 - USB microphone array
 - TensorFlow Lite runtime
 - MQTT (sensor communication)
+
+## 🔄 Recent Updates
+
+### AlertFeed Component (`frontend/src/components/AlertFeed.jsx`)
+- **Filter Logic**: Active filter now explicitly checks for `status === "OPEN"` instead of "not RESOLVED"
+- **Status Normalization**: Missing status defaults to `"OPEN"` for consistent handling
+- **Empty States**: Context-aware messages per filter tab:
+  - "No active incidents" (Active tab)
+  - "No resolved incidents" (Resolved tab)
+  - "No alerts to display" (All tab)
+- **New Incident Highlighting**: Tracks newest incident by ID instead of array index, ensuring correct highlighting across filter changes
+
+### WebSocket Hook (`frontend/src/hooks/useWebSocket.js`)
+- **Custom Event Listeners**: Supports `incident-resolved`, `incident-added`, `incident-updated` window events for external state management
+- **Exposed `wsRef`**: Returns WebSocket reference for components needing direct connection access (e.g., BroadcastModal)
+
+### Dashboard (`frontend/src/pages/Dashboard.jsx`)
+- **WebSocket Integration**: Uses `useWebSocket` hook for real-time incident stream
+- **Incident Resolution**: Dispatches custom events to update UI optimistically while API call completes
+- **Duplicate Connection Removed**: Single WebSocket connection managed by hook
+
+### HTTPS Setup
+- **Certificate Generation**: Run `generate_cert.bat` or `python generate_cert.py` in backend folder
+- **HTTPS Configuration**: See `HTTPS_SETUP.md` for detailed SSL/TLS setup instructions
+- **Start with HTTPS**: Use `start-https.bat` to launch backend with HTTPS enabled
 
 ## 📊 Severity Classification
 

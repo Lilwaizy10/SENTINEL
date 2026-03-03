@@ -42,7 +42,7 @@ export default function useWebSocket(url) {
         payload: { zones: ['all'] }
       }));
     };
-    
+
     ws.onclose = () => {
       setConnected(false);
       console.log('[WS] Disconnected from SENTINEL backend');
@@ -107,10 +107,28 @@ export default function useWebSocket(url) {
     };
   }, [url]);
 
-  return { 
-    incidents, 
-    volunteers: volunteerUpdates, 
-    stats, 
-    connected 
+  // Listen for incident resolve events from Dashboard
+  useEffect(() => {
+    const handleResolveEvent = (event) => {
+      const { incidentId } = event.detail;
+      console.log('🔵 Updating incident status to RESOLVED:', incidentId);
+      setIncidents((prev) =>
+        prev.map((inc) =>
+          inc.id === incidentId ? { ...inc, status: 'RESOLVED' } : inc
+        )
+      );
+    };
+
+    window.addEventListener('incident-resolved', handleResolveEvent);
+    return () => {
+      window.removeEventListener('incident-resolved', handleResolveEvent);
+    };
+  }, []);
+
+  return {
+    incidents,
+    volunteers: volunteerUpdates,
+    stats,
+    connected
   };
 }

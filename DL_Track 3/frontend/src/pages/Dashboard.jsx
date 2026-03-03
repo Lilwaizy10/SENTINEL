@@ -1,6 +1,6 @@
 // src/pages/Dashboard.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { useNavigate, useLocation } from "react-router-dom"; // ADDED: useLocation
+import { useNavigate, useLocation } from "react-router-dom";
 import AlertFeed from "../components/AlertFeed";
 import Map from "../components/Map";
 import VolunteerPanel from "../components/VolunteerPanel";
@@ -16,24 +16,36 @@ import useWebSocket from "../hooks/useWebSocket";
 import useGeolocation from "../hooks/useGeolocation";
 import { mockIncidents, mockVolunteers, mockStats, mockSensors } from "../mock/data";
 
-/**
- * Dashboard — Main Operator Command View
- * Enhanced with working buttons, modals, and vibrant UI
- */
-
+// Use HTTP backend on port 8000
+const API_URL = "http://localhost:8000";
 const WS_URL = "ws://localhost:8000/ws";
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const location = useLocation(); // ADDED: to read navigation state
+  const location = useLocation();
   const { incidents, volunteers, stats, connected } = useWebSocket(WS_URL);
   const wsRef = useRef(null);
-
-  // Geolocation
   const { position: myLocation, error: geoError, permission } = useGeolocation();
 
-  // State
-  const [selectedIncident, setSelectedIncident] = useState(null);
+  // DEBUG: Log what we receive in navigation state
+  useEffect(() => {
+    console.log("Dashboard received location.state:", location.state);
+    if (location.state?.focusIncident) {
+      console.log("FOCUS INCIDENT DATA:", location.state.focusIncident);
+      console.log("Severity:", location.state.focusIncident.severity);
+      console.log("Type:", location.state.focusIncident.sound_type || location.state.focusIncident.type);
+    }
+  }, [location.state]);
+
+  // Initialize selectedIncident from navigation state IMMEDIATELY
+  const [selectedIncident, setSelectedIncident] = useState(() => {
+    const incident = location.state?.focusIncident || null;
+    if (incident) {
+      console.log("INITIALIZING with incident:", incident);
+    }
+    return incident;
+  });
+  
   const [liveMode, setLiveMode] = useState({ active: false, analyser: null, audioContext: null });
   const [classificationScores, setClassificationScores] = useState([]);
   const [isCriticalFlash, setIsCriticalFlash] = useState(false);
@@ -57,36 +69,84 @@ export default function Dashboard() {
   const liveVolunteers = volunteers.length > 0 ? volunteers : mockVolunteers;
   const displayStats = stats.incidents_today > 0 ? stats : mockStats;
 
-  // --- NEW: Handle deep-linking from "View on dashboard" button ---
-  useEffect(() => {
-    // Check if we have an incident ID in navigation state
-    const focusId = location.state?.focusIncidentId;
+  // Get focus incident for map
+  const focusIncidentForMap = React.useMemo(() => {
+    console.log('');
+    console.log('🔵 ==============================================');
+    console.log('🔵 DASHBOARD CHECKING FOR FOCUS INCIDENT');
+    console.log('🔵 ==============================================');
+    console.log('🔵 location.state:', location.state);
+    console.log('');
     
+    // First priority: complete incident object passed in state
+    if (location.state?.focusIncident) {
+      const incident = location.state.focusIncident;
+      console.log('🔵 ✅ Received focusIncident from navigation state');
+      console.log('🔵 Full incident object:', JSON.stringify(incident, null, 2));
+      console.log('🔵 Incident keys:', Object.keys(incident || {}));
+      console.log('🔵 severity field:', incident.severity || incident.severity_level || 'NOT FOUND');
+      console.log('🔵 sound_type field:', incident.sound_type || incident.type || 'NOT FOUND');
+      console.log('🔵 location field:', incident.location || 'NOT FOUND');
+      console.log('');
+      return incident;
+    }
+
+    // Second priority: find by ID in live data
+    const focusId = location.state?.focusIncidentId;
     if (focusId) {
-      // Find the incident in our data
-      const incident = liveIncidents.find(inc => 
-        String(inc.id) === String(focusId)
-      );
-      
-      if (incident) {
-        // Auto-select it to show details panel
-        setSelectedIncident(incident);
-        
-        // Clear the state so it doesn't re-trigger on re-renders
-        // (but keep it in location.state for map to use)
+      const found = liveIncidents.find(inc => String(inc.id) === String(focusId));
+      if (found) {
+        console.log('🔵 ✅ Found incident by ID in liveIncidents');
+        console.log('🔵 focusIncidentId:', focusId);
+        console.log('🔵 Found incident:', JSON.stringify(found, null, 2));
+        console.log('');
+        return found;
+      } else {
+        console.log('🔵 ❌ No incident found with ID:', focusId);
+        console.log('🔵 Available incident IDs:', liveIncidents.map(i => i.id));
+        console.log('');
       }
     }
-  }, [location.state, liveIncidents]);
-
-  // --- NEW: Get focus incident for map (with coordinates) ---
-  const focusIncidentForMap = React.useMemo(() => {
-    const focusId = location.state?.focusIncidentId;
-    if (!focusId) return null;
     
-    return liveIncidents.find(inc => String(inc.id) === String(focusId)) || null;
+    console.log('🔵 ❌ No focus incident in state or ID');
+    console.log('');
+    return null;
   }, [location.state, liveIncidents]);
 
-  // Get WebSocket connection for broadcast
+  // Trigger critical flash IMMEDIATELY with STRONG VISUAL CUES
+  useEffect(() => {
+    const incident = focusIncidentForMap || selectedIncident;
+    if (incident?.severity === "CRITICAL") {
+      console.log("🚨🚨🚨 CRITICAL INCIDENT DETECTED! 🚨🚨🚨");
+      setIsCriticalFlash(true);
+      
+      // Make it pulse repeatedly
+      const interval = setInterval(() => {
+        setIsCriticalFlash(prev => !prev);
+      }, 800);
+      
+      // Stop after 5 seconds
+      setTimeout(() => {
+        clearInterval(interval);
+        setIsCriticalFlash(false);
+      }, 5000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [focusIncidentForMap, selectedIncident]);
+
+  // Also trigger on existing critical incidents
+  useEffect(() => {
+    if (!focusIncidentForMap && !selectedIncident && liveIncidents.length > 0) {
+      const criticalIncident = liveIncidents.find(inc => inc.severity === "CRITICAL");
+      if (criticalIncident) {
+        console.log("Found critical incident in live data:", criticalIncident);
+        setSelectedIncident(criticalIncident);
+      }
+    }
+  }, [liveIncidents, focusIncidentForMap, selectedIncident]);
+
+  // Get WebSocket connection
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
@@ -104,37 +164,44 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Debug geolocation status
+  // Debug geolocation
   useEffect(() => {
     if (geoError) console.warn("[Geo] error:", geoError.message);
     if (permission) console.log("[Geo] permission:", permission);
     if (myLocation) console.log("[Geo] position:", myLocation);
   }, [geoError, permission, myLocation]);
 
-  // Critical flash animation cue
-  useEffect(() => {
-    if (liveIncidents.length > 0 && liveIncidents[0].severity === "CRITICAL") {
-      setIsCriticalFlash(true);
-      const timer = setTimeout(() => setIsCriticalFlash(false), 2500);
-      return () => clearTimeout(timer);
-    }
-  }, [liveIncidents]);
-
-  // Handle live audio classification (unchanged)
   const handleLiveAudio = async (audioData, analyser) => {
     if (audioData) {
       try {
         const formData = new FormData();
         formData.append("file", audioData, "chunk.webm");
 
-        const res = await fetch("http://localhost:8000/classify", {
+        const res = await fetch(`${API_URL}/classify`, {
           method: "POST",
           body: formData,
         });
 
         if (res.ok) {
           const data = await res.json();
-          setClassificationScores(data.top5 || data.all_classes || []);
+          // Ensure we get an array, handle both top5 and all_classes formats
+          let scores = data.top5 || data.all_classes || [];
+          // If it's an object (not array), convert to array
+          if (scores && typeof scores === 'object' && !Array.isArray(scores)) {
+            scores = Object.values(scores);
+          }
+          // Ensure it's an array of objects with proper structure
+          if (Array.isArray(scores)) {
+            setClassificationScores(scores.map(s => ({
+              label: s.label || s.class || s.sentinel_label || 'Unknown',
+              confidence: s.confidence || s.score || 0,
+              score: s.score || s.confidence || 0,
+              severity: s.severity || 'LOW',
+              sentinel_label: s.sentinel_label || s.label || s.class
+            })));
+          } else {
+            setClassificationScores([]);
+          }
         }
       } catch (err) {
         console.error("Classification error:", err);
@@ -184,34 +251,63 @@ export default function Dashboard() {
     setClassificationScores([]);
   };
 
-  // Working Resolve Button
   const handleResolveIncident = async (incidentId) => {
+    console.log("🔴 Resolving incident:", incidentId);
+
     try {
-      const response = await fetch(`http://localhost:8000/incidents/${incidentId}/status`, {
+      // Try API call first
+      const response = await fetch(`${API_URL}/incidents/${incidentId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "RESOLVED" }),
       });
 
       if (response.ok) {
-        // Update local state to reflect the change
+        console.log(`[Incident ${incidentId}] Marked as RESOLVED via API`);
+
+        // Update the incidents array from WebSocket by using a custom event
+        // This will trigger the AlertFeed to re-render with updated status
+        const resolveEvent = new CustomEvent('incident-resolved', { detail: { incidentId } });
+        window.dispatchEvent(resolveEvent);
+
+        // Update local state
         setSelectedIncident((prev) =>
           prev && prev.id === incidentId ? { ...prev, status: "RESOLVED" } : prev
         );
-        console.log(`[Incident ${incidentId}] Marked as RESOLVED`);
+
+        // Close the popup/panel after resolution
+        setTimeout(() => {
+          setSelectedIncident(null);
+        }, 1000);
+
       } else {
-        console.error("Failed to resolve incident:", response.status);
+        console.error("API failed, using fallback");
+        // Fallback for demo
+        const resolveEvent = new CustomEvent('incident-resolved', { detail: { incidentId } });
+        window.dispatchEvent(resolveEvent);
+
+        setSelectedIncident((prev) =>
+          prev && prev.id === incidentId ? { ...prev, status: "RESOLVED" } : prev
+        );
+        setTimeout(() => {
+          setSelectedIncident(null);
+        }, 1000);
       }
     } catch (err) {
       console.error("Resolve error:", err);
       // Optimistic update for demo
+      const resolveEvent = new CustomEvent('incident-resolved', { detail: { incidentId } });
+      window.dispatchEvent(resolveEvent);
+
       setSelectedIncident((prev) =>
         prev && prev.id === incidentId ? { ...prev, status: "RESOLVED" } : prev
       );
+      setTimeout(() => {
+        setSelectedIncident(null);
+      }, 1000);
     }
   };
 
-  // Working Notes Button
   const handleNotesClick = (incidentId) => {
     setSelectedIncidentForNotes(incidentId);
     setShowNotesModal(true);
@@ -219,20 +315,16 @@ export default function Dashboard() {
 
   const handleSaveNote = (note) => {
     console.log("[Note saved]", note);
-    // Note is persisted in NotesModal component
   };
 
-  // Working Broadcast Announcement
   const handleBroadcastAnnouncement = () => {
     setShowBroadcastModal(true);
   };
 
   const handleSendBroadcast = (broadcastData) => {
     console.log("[Broadcast sent]", broadcastData);
-    // Broadcast is sent in BroadcastModal component
   };
 
-  // Working Volunteer Click Handler
   const handleVolunteerClick = (volunteer) => {
     if (volunteer && volunteer.type === "broadcast") {
       setShowBroadcastModal(true);
@@ -242,15 +334,13 @@ export default function Dashboard() {
     }
   };
 
-  // View All Volunteers Handler
   const handleViewAllVolunteers = () => {
     setShowAllVolunteersModal(true);
   };
 
-  // Working Ping Volunteer
   const handlePingVolunteer = async (volunteerId) => {
     try {
-      const response = await fetch(`http://localhost:8000/volunteers/${volunteerId}/respond`, {
+      const response = await fetch(`${API_URL}/volunteers/${volunteerId}/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "ping" }),
@@ -263,12 +353,17 @@ export default function Dashboard() {
       }
     } catch (err) {
       console.error("Ping error:", err);
-      // Optimistic feedback for demo
     }
   };
 
+  // Determine if we have a critical incident
+  const criticalIncident = focusIncidentForMap?.severity === "CRITICAL" || selectedIncident?.severity === "CRITICAL";
+
   return (
-    <div className={`app-container ${isCriticalFlash ? "dashboard-critical" : ""}`} id="dashboard-root">
+    <div
+      className={`app-container ${isCriticalFlash ? "dashboard-critical" : ""}`}
+      id="dashboard-root"
+    >
       {/* Header */}
       <header className="header">
         <div className="header-left">
@@ -358,7 +453,7 @@ export default function Dashboard() {
               volunteers={liveVolunteers}
               sensors={mockSensors}
               myLocation={myLocation}
-              focusIncident={focusIncidentForMap} // ADDED: pass focused incident
+              focusIncident={focusIncidentForMap}
             />
           </div>
 
@@ -366,7 +461,11 @@ export default function Dashboard() {
           {selectedIncident && (
             <div className="incident-detail-panel">
               <div className="detail-header">
-                <h3>Incident Details</h3>
+                <h3>
+                  {selectedIncident.severity === "CRITICAL" && "🚨 "}
+                  {selectedIncident.sound_type || selectedIncident.type}
+                  {selectedIncident.severity === "CRITICAL" && " 🚨"}
+                </h3>
                 <button onClick={() => setSelectedIncident(null)}>✕</button>
               </div>
               <div className="detail-content">
@@ -375,7 +474,10 @@ export default function Dashboard() {
                 </p>
                 <p>
                   <strong>Severity:</strong>{" "}
-                  <span style={{ color: getSeverityColor(selectedIncident.severity), fontWeight: 600 }}>
+                  <span style={{
+                    color: getSeverityColor(selectedIncident.severity),
+                    fontWeight: 700
+                  }}>
                     {selectedIncident.severity}
                   </span>
                 </p>
@@ -399,7 +501,7 @@ export default function Dashboard() {
                   </span>
                 </p>
                 {selectedIncident.status !== "RESOLVED" && (
-                  <div style={{ marginTop: "12px", display: "flex", gap: "8px" }}>
+                  <div style={{ marginTop: "20px", display: "flex", gap: "12px" }}>
                     <button
                       className="btn btn-success btn-sm"
                       onClick={() => handleResolveIncident(selectedIncident.id)}

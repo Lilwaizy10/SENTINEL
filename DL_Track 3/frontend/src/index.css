@@ -99,6 +99,30 @@ body {
   background: var(--secondary-bg);
 }
 
+/* Incident Popup Styling */
+.incident-popup .leaflet-popup-content-wrapper {
+  border-radius: 12px;
+  padding: 0;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+  border-left: 4px solid #0ea5e9;
+}
+
+.incident-popup .leaflet-popup-content {
+  margin: 12px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  min-width: 200px;
+}
+
+.incident-popup .leaflet-popup-tip {
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+}
+
+/* Critical incident popup */
+.incident-popup.critical .leaflet-popup-content-wrapper {
+  border-left-color: #dc2626;
+}
+
 .leaflet-popup-content-wrapper {
   border-radius: 12px;
   box-shadow: var(--shadow-lg);

@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from "react";
  * Fast, robust geolocation:
  * - Races a one-shot getCurrentPosition (fast first fix) vs watchPosition (continuous updates).
  * - Times out gracefully and returns cached positions when available.
+ * - Uses maximumAge: 0 to force fresh GPS fixes
  */
 export default function useGeolocation(options = {}) {
-  const [position, setPosition] = useState(null); // { lat, lng, accuracy, timestamp }
+  const [position, setPosition] = useState(null);
   const [error, setError] = useState(null);
-  const [permission, setPermission] = useState("prompt"); // 'granted' | 'denied' | 'prompt'
+  const [permission, setPermission] = useState("prompt");
   const watchIdRef = useRef(null);
   const settledFirstFixRef = useRef(false);
 
@@ -36,18 +37,17 @@ export default function useGeolocation(options = {}) {
 
     const opts = {
       enableHighAccuracy: true,
-      maximumAge: 30_000,  // reuse cached position up to 30s
-      timeout: 8_000,      // first-fix timeout
+      maximumAge: 0,  // FORCE FRESH FIX - don't use cached positions
+      timeout: 15_000,
       ...options,
     };
 
-    // --- One-shot first fix (fast as possible) ---
+    // --- One-shot first fix ---
     const firstFixTimer = setTimeout(() => {
-      // If getCurrentPosition stalls, we don't block forever.
       if (!settledFirstFixRef.current) {
-        // no-op here; watch will likely supply soon
+        console.log('⏱️ First fix timeout - waiting for watchPosition');
       }
-    }, opts.timeout || 8000);
+    }, opts.timeout || 15000);
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -55,6 +55,7 @@ export default function useGeolocation(options = {}) {
         clearTimeout(firstFixTimer);
         settledFirstFixRef.current = true;
         const { latitude, longitude, accuracy } = pos.coords || {};
+        console.log('✅ GPS Fix acquired - Accuracy:', accuracy.toFixed(1) + 'm', 'Lat:', latitude.toFixed(6), 'Lng:', longitude.toFixed(6));
         setPosition({
           lat: latitude,
           lng: longitude,
@@ -66,17 +67,18 @@ export default function useGeolocation(options = {}) {
       (err) => {
         if (cancelled) return;
         clearTimeout(firstFixTimer);
-        // Don't fail the hook; watchPosition may still succeed.
+        console.warn('⚠️ Geolocation error:', err.code, err.message);
         setError(err);
       },
-      { ...opts, timeout: opts.timeout || 8000 }
+      { ...opts, timeout: opts.timeout || 15000 }
     );
 
-    // --- Continuous updates (more accurate once GNSS locks) ---
+    // --- Continuous updates ---
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
         if (cancelled) return;
         const { latitude, longitude, accuracy } = pos.coords || {};
+        console.log('📍 Position update - Accuracy:', accuracy.toFixed(1) + 'm', 'Lat:', latitude.toFixed(6), 'Lng:', longitude.toFixed(6));
         setPosition({
           lat: latitude,
           lng: longitude,
@@ -87,13 +89,13 @@ export default function useGeolocation(options = {}) {
       },
       (err) => {
         if (cancelled) return;
-        // keep last known position; just record error
+        console.warn('⚠️ Watch error:', err.code, err.message);
         setError(err);
       },
       {
         enableHighAccuracy: true,
-        maximumAge: 10_000,
-        timeout: 20_000,
+        maximumAge: 0,  // FORCE FRESH FIX
+        timeout: 30_000,
       }
     );
 

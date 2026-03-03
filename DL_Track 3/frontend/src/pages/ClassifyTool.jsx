@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+// Backend API URL - HTTP on port 8000
+const API_URL = "http://localhost:8000";
+
 /**
  * ClassifyTool — Spec Section 4.1 & 10.3
  * Upload audio files for YAMNet classification with geolocation.
@@ -17,12 +20,15 @@ export default function ClassifyTool() {
   const [location, setLocation] = useState(null);
   const [incidentCreated, setIncidentCreated] = useState(false);
   const [createdIncidentId, setCreatedIncidentId] = useState(null);
+  const [createdIncidentData, setCreatedIncidentData] = useState(null);
 
-  // Get user location on mount
+  // Get user location on mount - Force fresh GPS fix
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          console.log('✅ GPS Fix acquired - Accuracy:', position.coords.accuracy.toFixed(1) + 'm');
+          console.log('📍 Location:', position.coords.latitude.toFixed(6), position.coords.longitude.toFixed(6));
           setLocation({
             lat: position.coords.latitude,
             lng: position.coords.longitude,
@@ -30,11 +36,11 @@ export default function ClassifyTool() {
           });
         },
         (err) => {
-          console.warn('Location access denied:', err);
+          console.warn('⚠️ Geolocation error:', err.code, err.message);
           // Default to Singapore coordinates
           setLocation({ lat: 1.3521, lng: 103.8198, accuracy: 100 });
         },
-        { enableHighAccuracy: true, timeout: 10000 }
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }  // FORCE FRESH FIX
       );
     } else {
       setLocation({ lat: 1.3521, lng: 103.8198, accuracy: 100 });
@@ -75,7 +81,7 @@ export default function ClassifyTool() {
 
       console.log('Uploading file for classification...', file.name);
       
-      const response = await fetch('http://localhost:8000/classify', {
+      const response = await fetch(`${API_URL}/classify`, {
         method: 'POST',
         body: formData,
       });
@@ -86,23 +92,88 @@ export default function ClassifyTool() {
       }
 
       const data = await response.json();
-      console.log('Classification result:', data);
+      console.log('📊 Classification result from backend:', data);
+      console.log('📊 Data keys:', Object.keys(data));
 
-      // Store incident ID if returned from backend
-      const incidentId = data.incident_id || data.id;
-      if (incidentId) {
-        setCreatedIncidentId(incidentId);
+      // Build incident object from classification result
+      const topClass = data.top_class || data.label || 'unknown';
+      const severity = data.severity || (
+        topClass.toLowerCase().includes('explosion') || topClass.toLowerCase().includes('gunshot') ? 'CRITICAL' :
+        topClass.toLowerCase().includes('scream') || topClass.toLowerCase().includes('glass') ? 'HIGH' :
+        topClass.toLowerCase().includes('thud') || topClass.toLowerCase().includes('impact') ? 'MEDIUM' : 'LOW'
+      );
+      
+      const incidentData = {
+        id: `inc_${Date.now()}`,
+        sound_type: topClass,
+        severity: severity,
+        confidence: data.confidence || 0,
+        location: location ? {
+          lat: location.lat,
+          lng: location.lng,
+          description: `User Location (±${Math.round(location.accuracy)}m)`,
+          zone: 'User Zone'
+        } : { lat: 1.3521, lng: 103.8198, description: 'Singapore', zone: 'Central' },
+        timestamp: new Date().toISOString(),
+        status: 'OPEN',
+        volunteers_notified: 0,
+        recommended_response: data.recommended_response || ['Dispatcher Review']
+      };
+      
+      console.log('📊 Built incident from classification:');
+      console.log('  - sound_type:', incidentData.sound_type);
+      console.log('  - severity:', incidentData.severity);
+      console.log('  - confidence:', incidentData.confidence);
+
+      // Send to backend for classification - incident will be created automatically
+      try {
+        const response = await fetch(`${API_URL}/classify`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || `Server error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('📊 Classification result:', data);
+        console.log('✅ Incident created automatically:', data.incident_id);
+        
+        // Update with incident ID from backend
+        if (data.incident_id) {
+          incidentData.id = data.incident_id;
+          setCreatedIncidentId(data.incident_id);
+        }
+
+        setCreatedIncidentData(incidentData);
+        setIncidentCreated(true);
+
+        console.log('✅ Stored incident data for navigation:');
+        console.log('  - ID:', incidentData.id);
+        console.log('  - sound_type:', incidentData.sound_type);
+        console.log('  - severity:', incidentData.severity);
+        console.log('  - location:', incidentData.location);
+        console.log('  - Full object:', incidentData);
+
+        // Set classification for display
+        setClassification({
+          top_class: data.top_class || data.label || topClass,
+          confidence: data.confidence || incidentData.confidence,
+          top5: data.all_classes || data.top5 || [],
+          severity: data.severity || incidentData.severity,
+          recommended_response: data.recommended_response || incidentData.recommended_response
+        });
+
+        setIncidentCreated(true);
+
+      } catch (err) {
+        console.error('Classification error:', err);
+        setError(`Classification failed: ${err.message}. Make sure backend is running.`);
+      } finally {
+        setIsUploading(false);
       }
-
-      setClassification({
-        top_class: data.label || data.top_class,
-        confidence: data.confidence,
-        top5: data.top5 || [],
-        severity: getSeverityFromClass(data.label || data.top_class),
-        recommended_response: getRecommendedResponse(data.label || data.top_class)
-      });
-
-      setIncidentCreated(true);
 
     } catch (err) {
       console.error('Classification error:', err);
@@ -141,10 +212,28 @@ export default function ClassifyTool() {
   };
 
   const handleViewOnDashboard = () => {
-    // Navigate to dashboard with incident ID to focus on
+    console.log('');
+    console.log('🔴 ==============================================');
+    console.log('🔴 VIEW ON DASHBOARD BUTTON CLICKED');
+    console.log('🔴 ==============================================');
+    console.log('🔴 createdIncidentId:', createdIncidentId);
+    console.log('🔴 createdIncidentData:', JSON.stringify(createdIncidentData, null, 2));
+    console.log('🔴 Location data:', createdIncidentData?.location);
+    console.log('🔴 Location lat:', createdIncidentData?.location?.lat);
+    console.log('🔴 Location lng:', createdIncidentData?.location?.lng);
+    console.log('');
+
+    // Navigate to dashboard with full incident object and ID
     navigate('/', {
-      state: { focusIncidentId: createdIncidentId }
+      state: {
+        focusIncidentId: createdIncidentId,
+        focusIncident: createdIncidentData
+      }
     });
+
+    console.log('🟢 Navigation initiated with state');
+    console.log('🟢 Check Dashboard console logs for received data');
+    console.log('');
   };
 
   return (
@@ -283,7 +372,7 @@ export default function ClassifyTool() {
             <div style={{ marginBottom: '16px' }}>
               <strong>Recommended Response:</strong>
               <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
-                {classification.recommended_response.map((response, idx) => (
+                {Array.isArray(classification.recommended_response) && classification.recommended_response.map((response, idx) => (
                   <span key={idx} className="badge" style={{
                     backgroundColor: 'var(--accent)',
                     color: 'white',
@@ -291,7 +380,7 @@ export default function ClassifyTool() {
                     borderRadius: '9999px',
                     fontSize: '0.75rem'
                   }}>
-                    {response}
+                    {typeof response === 'string' ? response : String(response)}
                   </span>
                 ))}
               </div>
@@ -312,7 +401,7 @@ export default function ClassifyTool() {
           </div>
 
           {/* Top-5 Bar Chart */}
-          {classification.top5 && classification.top5.length > 0 && (
+          {classification.top5 && Array.isArray(classification.top5) && classification.top5.length > 0 && (
             <div style={{
               backgroundColor: 'var(--bg-secondary)',
               padding: '20px',
@@ -320,32 +409,39 @@ export default function ClassifyTool() {
               marginBottom: '20px'
             }}>
               <h4 style={{ marginBottom: '16px' }}>Top 5 Classifications</h4>
-              {classification.top5.map((result, idx) => (
-                <div key={idx} style={{ marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.875rem' }}>
-                    <span style={{ color: idx === 0 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-                      {result.label || result}
-                    </span>
-                    <span style={{ fontWeight: '600' }}>
-                      {((result.confidence || result.score || 0) * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                  <div style={{
-                    height: '24px',
-                    backgroundColor: 'var(--bg-tertiary)',
-                    borderRadius: '12px',
-                    overflow: 'hidden'
-                  }}>
+              {classification.top5.map((result, idx) => {
+                // Safely extract label - never render the whole object
+                const resultLabel = result?.label || result?.sentinel_label || result?.class || String(result) || 'Unknown';
+                const resultConfidence = result?.confidence || result?.score || 0;
+                const percentage = typeof resultConfidence === 'number' ? (resultConfidence * 100).toFixed(1) : '0.0';
+                
+                return (
+                  <div key={idx} style={{ marginBottom: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.875rem' }}>
+                      <span style={{ color: idx === 0 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                        {resultLabel}
+                      </span>
+                      <span style={{ fontWeight: '600' }}>
+                        {percentage}%
+                      </span>
+                    </div>
                     <div style={{
-                      height: '100%',
-                      width: `${(result.confidence || result.score || 0) * 100}%`,
-                      backgroundColor: idx === 0 ? getSeverityColor(classification.severity) : 'var(--accent)',
+                      height: '24px',
+                      backgroundColor: 'var(--bg-tertiary)',
                       borderRadius: '12px',
-                      transition: 'width 0.4s ease'
-                    }} />
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${typeof resultConfidence === 'number' ? resultConfidence * 100 : 0}%`,
+                        backgroundColor: idx === 0 ? getSeverityColor(classification.severity) : 'var(--accent)',
+                        borderRadius: '12px',
+                        transition: 'width 0.4s ease'
+                      }} />
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 

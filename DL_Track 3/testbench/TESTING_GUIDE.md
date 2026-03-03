@@ -1,0 +1,520 @@
+# SENTINEL - Testing & Inference Guide
+
+**DLW Hackathon 2025 — Track 3**
+
+This guide provides step-by-step instructions for graders to test and evaluate the SENTINEL Community Safety Intelligence Platform.
+
+---
+
+## 📋 Table of Contents
+
+1. [Prerequisites](#prerequisites)
+2. [Quick Start](#quick-start)
+3. [Testing Checklist](#testing-checklist)
+4. [Feature Testing](#feature-testing)
+5. [API Testing](#api-testing)
+6. [WebSocket Testing](#websocket-testing)
+7. [Inference Testing](#inference-testing)
+8. [Troubleshooting](#troubleshooting)
+
+---
+
+## Prerequisites
+
+### System Requirements
+- **OS**: Windows 10/11, macOS, or Linux
+- **Python**: 3.11 or higher
+- **Node.js**: 18.x or higher
+- **npm**: 9.x or higher
+
+### Required Dependencies
+```bash
+# Backend
+cd backend
+pip install -r requirements.txt
+
+# Frontend
+cd frontend
+npm install
+```
+
+### Environment Setup
+- Ensure port `8000` is available (backend)
+- Ensure port `3000` is available (frontend)
+- Microphone access (for live classification testing)
+
+---
+
+## Quick Start
+
+### Step 1: Start the Backend
+```bash
+cd backend
+uvicorn main:app --reload --port 8000
+```
+**Expected Output:**
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000
+INFO:     Application startup complete.
+```
+
+### Step 2: Start the Frontend
+```bash
+cd frontend
+npm start
+```
+**Expected Output:**
+```
+Compiled successfully!
+You can now view sentinel-frontend in the browser.
+  Local:            http://localhost:3000
+```
+
+### Step 3: Open the Application
+Navigate to **http://localhost:3000** in your browser.
+
+---
+
+## Testing Checklist
+
+| # | Test | Expected Result | Status |
+|---|------|-----------------|--------|
+| 1 | Backend health check | `/health` returns `{"status": "healthy"}` | ☐ |
+| 2 | Frontend loads | Dashboard displays without errors | ☐ |
+| 3 | WebSocket connects | Connection indicator shows "Connected" | ☐ |
+| 4 | Mock incidents display | AlertFeed shows sample incidents | ☐ |
+| 5 | Filter tabs work | All/Active/Resolved filters function correctly | ☐ |
+| 6 | Incident card click | Opens detail panel with full information | ☐ |
+| 7 | Resolve incident | Status updates to RESOLVED, card moves to Resolved tab | ☐ |
+| 8 | Map markers display | Incidents shown on map with correct severity colors | ☐ |
+| 9 | Critical flash animation | CRITICAL incidents trigger red flash | ☐ |
+| 10 | Live Demo button | Activates microphone and shows classification | ☐ |
+| 11 | API endpoints | All REST endpoints respond correctly | ☐ |
+| 12 | WebSocket events | Real-time updates appear without refresh | ☐ |
+
+---
+
+## Feature Testing
+
+### 1. Dashboard AlertFeed
+
+**Test Steps:**
+1. Open http://localhost:3000
+2. Observe the **Live Alerts** panel on the left sidebar
+3. Verify mock incidents are displayed with:
+   - Severity badge (CRITICAL/HIGH/MEDIUM/LOW)
+   - Location description
+   - Confidence bar (percentage)
+   - Timestamp (e.g., "5m ago")
+
+**Expected Behavior:**
+- Cards are sorted by timestamp (newest first)
+- Color-coded borders match severity level
+- New incident cards have a subtle animation
+
+---
+
+### 2. Alert Filtering
+
+**Test Steps:**
+1. Click the **"All"** tab → See all incidents
+2. Click the **"Active"** tab → See only OPEN incidents
+3. Click the **"Resolved"** tab → See only RESOLVED incidents
+
+**Expected Behavior:**
+- Active filter shows incidents with `status === "OPEN"`
+- Resolved filter shows incidents with `status === "RESOLVED"`
+- Empty state messages are context-aware:
+  - "No active incidents" (Active tab)
+  - "No resolved incidents" (Resolved tab)
+  - "No alerts to display" (All tab)
+
+---
+
+### 3. Incident Details Panel
+
+**Test Steps:**
+1. Click any incident card in AlertFeed
+2. Observe the detail panel that appears on the map
+
+**Expected Information:**
+- Incident type (e.g., "Gunshot", "Glass Break")
+- Severity level with color coding
+- Location description
+- Confidence percentage
+- Volunteers notified count
+- Status badge
+
+**Actions Available:**
+- ✓ Mark as Resolved (for OPEN incidents)
+- 📝 Add Note (opens modal)
+
+---
+
+### 4. Resolve Incident
+
+**Test Steps:**
+1. Click an incident with status "OPEN"
+2. Click the **"✓ Mark as Resolved"** button
+3. Observe the status change to "RESOLVED"
+4. Check the AlertFeed → incident should move to "Resolved" tab
+
+**Expected Behavior:**
+- API call sent to `PATCH /incidents/{id}/status`
+- UI updates optimistically (immediate feedback)
+- Custom event dispatched to update WebSocket state
+- Panel closes after 1 second
+
+---
+
+### 5. Map Visualization
+
+**Test Steps:**
+1. Observe the map in the center panel
+2. Look for incident markers (colored pins)
+3. Look for volunteer markers (blue pins)
+
+**Expected Behavior:**
+- Incident markers match severity colors:
+  - 🔴 CRITICAL: Red
+  - 🟠 HIGH: Orange
+  - 🟡 MEDIUM: Yellow
+  - 🟢 LOW: Green
+- Markers pulse with expanding rings
+- Clicking a marker focuses the incident
+
+---
+
+### 6. Critical Incident Animation
+
+**Test Steps:**
+1. Wait for a CRITICAL severity incident (or use simulator)
+2. Observe the dashboard border
+
+**Expected Behavior:**
+- Dashboard border flashes red repeatedly for 5 seconds
+- Flash interval: 800ms
+- Animation stops after 5 seconds
+
+---
+
+### 7. Audio File Classification
+
+**Test Steps:**
+1. Prepare a `.wav` or `.mp3` audio file (e.g., glass break, gunshot, scream, explosion)
+2. Use the **Upload Audio** feature in the frontend (or API endpoint below)
+3. Observe the classification results and automatic incident creation
+
+**Expected Behavior:**
+- Audio file is uploaded and classified using YAMNet
+- Top-5 sound classifications displayed with confidence scores
+- Incident automatically created if confidence exceeds threshold
+- Alert appears in AlertFeed with appropriate severity level
+- WebSocket broadcasts `NEW_INCIDENT` event to all connected clients
+
+**Test Audio Files:**
+| Sound Type | Expected Classification | Severity |
+|------------|------------------------|----------|
+| Glass break / Shatter | "Glass break" | HIGH |
+| Gunshot / Firearm | "Gunshot" | CRITICAL |
+| Explosion / Bomb | "Explosion" | CRITICAL |
+| Scream / Shout | "Distress Scream" | HIGH |
+| Impact / Thud | "Impact Thud" | MEDIUM |
+| Crying / Sobbing | "Distress Cry" | MEDIUM |
+| Car Alarm | "Car Alarm" | LOW |
+| Speech / Talking | "Speech" | LOW |
+
+---
+
+### 8. Volunteer Panel
+
+**Test Steps:**
+1. Observe the right sidebar (Volunteer Panel)
+2. Click on a volunteer card
+3. View volunteer details in modal
+
+**Expected Information:**
+- Volunteer name and ID
+- Distance from incident
+- Response time average
+- Availability status
+
+**Actions Available:**
+- 📢 Broadcast Announcement (send to all)
+- 📍 Ping Volunteer (send location alert)
+
+---
+
+## API Testing
+
+### Using cURL
+
+#### Health Check
+```bash
+curl http://localhost:8000/health
+```
+**Expected Response:**
+```json
+{"status": "healthy"}
+```
+
+#### Get Statistics
+```bash
+curl http://localhost:8000/stats
+```
+**Expected Response:**
+```json
+{
+  "incidents_today": 12,
+  "active_incidents": 5,
+  "avg_volunteer_response_s": 94,
+  "volunteers_active": 4
+}
+```
+
+#### List Incidents
+```bash
+curl http://localhost:8000/incidents
+```
+
+#### Get Single Incident
+```bash
+curl http://localhost:8000/incidents/1
+```
+
+#### Create Incident
+```bash
+curl -X POST http://localhost:8000/incidents \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sound_type": "Glass break",
+    "severity": "HIGH",
+    "location": {"description": "Test Location", "latitude": 1.3521, "longitude": 103.8198},
+    "confidence": 0.87
+  }'
+```
+
+#### Resolve Incident
+```bash
+curl -X PATCH http://localhost:8000/incidents/1/status \
+  -H "Content-Type: application/json" \
+  -d '{"status": "RESOLVED"}'
+```
+
+#### Classify Audio File
+
+```bash
+curl -X POST http://localhost:8000/classify \
+  -F "file=@path/to/your/audio_file.wav"
+```
+
+**Expected Response:**
+```json
+{
+  "top_class": "Gunshot",
+  "confidence": 0.92,
+  "severity": "CRITICAL",
+  "recommended_response": ["Police (999)", "SCDF (995)", "SGSecure"],
+  ...
+}
+```
+
+**Note:** This endpoint automatically creates an incident in the system when classification confidence exceeds the threshold.
+
+---
+
+### Using Swagger UI
+
+1. Open **http://localhost:8000/docs** in browser
+2. Test all endpoints interactively
+3. View request/response schemas
+
+---
+
+## WebSocket Testing
+
+### Using Browser Console
+
+1. Open http://localhost:3000
+2. Open Developer Tools (F12)
+3. Go to **Console** tab
+4. Observe WebSocket connection logs:
+
+**Expected Logs:**
+```
+[WS] Connected to SENTINEL backend
+[WS] Subscription sent to zones: ['all']
+```
+
+### Using WebSocket Client
+
+Install a WebSocket client extension (e.g., "Simple WebSocket Client" for Chrome)
+
+1. Connect to: `ws://localhost:8000/ws`
+2. Send subscription message:
+```json
+{
+  "type": "SUBSCRIBE",
+  "payload": { "zones": ["all"] }
+}
+```
+3. Wait for events:
+
+**Expected Events:**
+- `NEW_INCIDENT` — When new incident created
+- `INCIDENT_UPDATE` — When incident status changes
+- `STATS_UPDATE` — Every 30 seconds
+- `VOLUNTEER_UPDATE` — When volunteer responds
+
+---
+
+## Inference Testing
+
+### Test with Sample Audio Files (cURL)
+
+1. Prepare a `.wav` or `.mp3` audio file
+2. Upload and classify using cURL:
+
+```bash
+curl -X POST http://localhost:8000/classify \
+  -F "file=@path/to/your/audio_file.wav"
+```
+
+**Expected Response:**
+```json
+{
+  "top_class": "Gunshot",
+  "confidence": 0.92,
+  "severity": "CRITICAL",
+  "all_classes": [
+    {"class": "Gunshot, gunfire", "confidence": 0.92, "sentinel_label": "gunshot", "severity": "CRITICAL"},
+    {"class": "Explosion", "confidence": 0.05, "sentinel_label": "explosion", "severity": "CRITICAL"},
+    ...
+  ],
+  "watchlist": [...],
+  "recommended_response": ["Police (999)", "SCDF (995)", "SGSecure"],
+  "model": "YAMNet",
+  "filename": "audio_file.wav"
+}
+```
+
+**Note:** The endpoint automatically creates an incident if classification confidence exceeds the threshold.
+
+### Test with Sample Audio Files (Python)
+
+```python
+import requests
+
+files = {'file': open('test_audio.wav', 'rb')}
+response = requests.post('http://localhost:8000/classify', files=files)
+print(response.json())
+```
+
+### Test with Simulator
+
+The simulator generates fake incidents for testing:
+
+```bash
+cd backend
+python simulator.py
+```
+
+**Expected Behavior:**
+- New incidents appear in AlertFeed every 5-10 seconds
+- WebSocket broadcasts `NEW_INCIDENT` events
+- Map markers update in real-time
+- Stats counter increments
+
+---
+
+## Troubleshooting
+
+### Backend Won't Start
+
+**Error:** `Port 8000 is already in use`
+```bash
+# Windows
+netstat -ano | findstr :8000
+taskkill /F /PID <PID>
+
+# macOS/Linux
+lsof -ti:8000 | xargs kill -9
+```
+
+**Error:** `ModuleNotFoundError: No module named 'fastapi'`
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+### Frontend Won't Start
+
+**Error:** `Port 3000 is already in use`
+```bash
+# Windows
+netstat -ano | findstr :3000
+taskkill /F /PID <PID>
+
+# macOS/Linux
+lsof -ti:3000 | xargs kill -9
+```
+
+**Error:** `npm install fails`
+```bash
+# Clear cache and reinstall
+rm -rf node_modules package-lock.json
+npm install
+```
+
+---
+
+### WebSocket Not Connecting
+
+1. Check backend is running on port 8000
+2. Verify firewall isn't blocking WebSocket connections
+3. Check browser console for error messages
+4. Try reconnecting by refreshing the page
+
+---
+
+### Microphone Not Working
+
+1. Ensure browser has microphone permission
+2. Check system microphone settings
+3. Try a different browser (Chrome recommended)
+4. Verify microphone works in other applications
+
+---
+
+### Map Not Displaying
+
+1. Check internet connection (Leaflet requires CDN access)
+2. Verify browser console for errors
+3. Clear browser cache and reload
+
+---
+
+## Grading Criteria Reference
+
+| Criterion | How to Test | Points |
+|-----------|-------------|--------|
+| Core Functionality | Dashboard loads, incidents display, filters work | 25 |
+| Real-time Updates | WebSocket events, live incident stream | 20 |
+| UI/UX Design | Responsive layout, animations, color coding | 15 |
+| Audio Classification | Live demo mode, YAMNet integration | 20 |
+| False Positive Reduction | Multi-layer pipeline, confidence scoring | 10 |
+| Documentation | README, API docs, this testing guide | 10 |
+
+---
+
+## Contact & Support
+
+For issues or questions during testing:
+- Check `README.md` for architecture overview
+- Check `HTTPS_SETUP.md` for SSL/TLS configuration
+- Check API docs at http://localhost:8000/docs
+
+---
+
+**Built for DLW Hackathon 2025 — Singapore**

@@ -10,7 +10,18 @@ import IncidentCard from "./IncidentCard";
 export default function AlertFeed({ incidents = [], onSelect, onResolve, onNotes }) {
   const [filter, setFilter] = useState("all"); // all | active | resolved
 
+  // Filter and validate incidents
   const filteredIncidents = incidents.filter((inc) => {
+    // Skip if not a valid object
+    if (!inc || typeof inc !== 'object') return false;
+    // Skip if it looks like a classification result (has 'class' key but no 'id')
+    if (inc.class && !inc.id) {
+      console.warn('⚠️ Skipping classification result in incidents array:', inc);
+      return false;
+    }
+    // Must have an id
+    if (!inc.id) return false;
+
     const status = inc.status?.toUpperCase?.() || "OPEN";
     if (filter === "active") {
       return status !== "RESOLVED";

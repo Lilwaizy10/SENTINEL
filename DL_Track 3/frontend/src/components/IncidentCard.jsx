@@ -9,6 +9,17 @@ import React, { useState, useEffect } from "react";
 export default function IncidentCard({ incident, isNew = false, onClick, onResolve, onNotes }) {
   const [elapsedTime, setElapsedTime] = useState("");
 
+  // Debug: Log incident structure
+  React.useEffect(() => {
+    console.log('🔍 IncidentCard received:', incident);
+    console.log('🔍 Incident type:', typeof incident);
+    console.log('🔍 Incident keys:', incident ? Object.keys(incident) : []);
+    if (incident && typeof incident === 'object' && incident.class) {
+      console.error('⚠️ WARNING: Incident object has "class" key - this looks like a classification result, not an incident!');
+      console.error('⚠️ Full object:', incident);
+    }
+  }, [incident]);
+
   // Update elapsed time every minute
   useEffect(() => {
     const updateElapsed = () => {
@@ -87,7 +98,7 @@ export default function IncidentCard({ incident, isNew = false, onClick, onResol
 
   return (
     <div
-      className={`incident-card incident-card-${severity.toLowerCase()} ${isNew ? "incident-card-new" : ""}`}
+      className={`incident-card incident-card-${severity.toLowerCase()} ${isNew ? "incident-card-new" : ""} ${severity === "CRITICAL" ? "critical-alert-border" : ""}`}
       onClick={onClick}
       style={{ borderLeftColor: severityColors[severity] }}
     >
@@ -126,12 +137,12 @@ export default function IncidentCard({ incident, isNew = false, onClick, onResol
       <div className="confidence-text">{confidence}% confidence</div>
 
       {/* Recommended response */}
-      {incident.recommended_response && incident.recommended_response.length > 0 && (
+      {incident.recommended_response && Array.isArray(incident.recommended_response) && incident.recommended_response.length > 0 && (
         <div className="recommended-response">
           <small>Recommended Response</small>
           <div className="response-tags">
             {incident.recommended_response.slice(0, 3).map((r, i) => (
-              <span key={i} className="response-tag">{r}</span>
+              <span key={i} className="response-tag">{typeof r === 'string' ? r : String(r)}</span>
             ))}
           </div>
         </div>

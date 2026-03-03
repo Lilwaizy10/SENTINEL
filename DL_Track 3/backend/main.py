@@ -1,8 +1,14 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-import asyncio, json, threading
+import asyncio, json, threading, sys, os
 from typing import List, Optional
+from datetime import datetime
+
+# === Force UTF-8 on Windows ===
+if sys.platform == "win32":
+    os.system('chcp 65001 >nul 2>&1')
+    sys.stdout.reconfigure(encoding='utf-8')
 
 # === Safe Classifier Import ===
 CLASSIFIER_AVAILABLE = False
@@ -155,11 +161,49 @@ async def websocket_endpoint(websocket: WebSocket):
 # === Classify Endpoint ===
 @app.post("/classify")
 async def handle_classify(file: UploadFile = File(...)):
-    """Classify uploaded audio file"""
+    """Classify uploaded audio file and automatically create incident"""
     try:
         result = await real_classify(file)
         print(f"[INFO] Classified: {result.get('top_class')} ({result.get('confidence'):.2%})")
-        return result
+        
+        # Automatically create incident from classification result
+        incident_id = f"inc_{asyncio.get_event_loop().time()}"
+        
+        incident = {
+            "id": incident_id,
+            "sound_type": result.get("top_class", "unknown"),
+            "confidence": result.get("confidence", 0),
+            "severity": result.get("severity", "LOW"),
+            "recommended_response": result.get("recommended_response", ["Dispatcher Review"]),
+            "status": "OPEN",
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "location": {
+                "zone": "Audio Classifier",
+                "description": f"Classified from uploaded audio",
+                "lat": result.get("lat"),  # Will be populated if frontend sends it
+                "lng": result.get("lng"),
+            },
+            "volunteers_notified": 0,
+            "sensor_id": "web-classifier",
+        }
+        
+        print(f"[ALERT] Creating incident: {incident['sound_type']} (Severity: {incident['severity']})")
+        
+        # Broadcast incident to all connected WebSocket clients
+        await manager.broadcast({
+            'type': 'NEW_INCIDENT',
+            'payload': incident
+        })
+        
+        print(f"[OK] Incident {incident_id} broadcast to dashboard")
+        
+        # Return both classification and incident data
+        return {
+            **result,
+            "incident_id": incident_id,
+            "incident_created": True
+        }
+        
     except Exception as e:
         print(f"[ERROR] Classification error: {e}")
         raise HTTPException(status_code=500, detail=f"Classification failed: {str(e)}")
@@ -171,14 +215,14 @@ async def create_incident(data: dict):
     incident_id = data.get('id', f'inc_{asyncio.get_event_loop().time()}')
     sound_type = data.get('sound_type', 'unknown')
     zone = data.get('location', {}).get('zone', 'unknown')
-    
+
     print(f"[ALERT] New incident: {sound_type} at {zone} [{incident_id}]")
-    
+
     await manager.broadcast({
         'type': 'NEW_INCIDENT',
         'payload': {**data, 'id': incident_id}
     })
-    
+
     return {"status": "created", "id": incident_id}
 
 # === Stats Endpoint ===
@@ -215,23 +259,19 @@ async def list_volunteers():
 # === Run Server ===
 if __name__ == "__main__":
     import uvicorn
-    import sys
-    
-    if sys.platform == "win32":
-        try:
-            import os
-            os.system('chcp 65001 >nul 2>&1')
-        except:
-            pass
-    
-    print("Starting SENTINEL API on http://localhost:8000")
-    print("Docs: http://localhost:8000/docs")
-    print("Health: http://localhost:8000/health")
-    
+
+    print("=" * 50)
+    print("  SENTINEL API - HTTP MODE")
+    print("=" * 50)
+    print("  Starting on http://localhost:8000")
+    print("  Docs: http://localhost:8000/docs")
+    print("  Health: http://localhost:8000/health")
+    print("=" * 50)
+
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=8000,
         reload=False,
-        log_level="info"
+        log_level="info",
     )
