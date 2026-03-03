@@ -197,6 +197,4 @@ A## 🛠️ Tech Stack
 - **No biometric data** — Only classified event labels
 - **PDPA compliant** — Singapore personal data protection
 
-## 📝 License
 
-Built for DLW Hackathon 2025 — Singapore
