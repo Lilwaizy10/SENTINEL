@@ -6,6 +6,12 @@ A privacy-preserving public safety system that combines a mesh of acoustic senso
 
 ## 🚀 Quick Start
 
+### System Dependencies
+- **ffmpeg**: Required for live audio classification to convert browser audio to the correct format for the YAMNet model.
+  - **Windows**: `winget install ffmpeg`
+  - **macOS**: `brew install ffmpeg`
+  - **Linux**: `sudo apt install ffmpeg`
+
 ### Backend (FastAPI)
 
 ```bash

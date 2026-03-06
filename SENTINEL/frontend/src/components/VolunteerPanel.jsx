@@ -2,31 +2,38 @@ import React, { useState } from "react";
 
 /**
  * VolunteerPanel — Interactive Volunteer List
- * Lists volunteers with clickable cards, status badges, and ping functionality.
+ *
+ * FIX D: Duplicate object keys for 'en_route' in getStatusBadgeClass,
+ *   getStatusIcon, and getStatusLabel. JavaScript silently drops all but
+ *   the last definition, which happened to be identical here — functionally
+ *   harmless but a latent bug if the values ever diverge. Deduplicated.
+ *
+ * IMPROVEMENT: availableVolunteers and activeVolunteers filters now also
+ *   treat 'ACTIVE' (the status mock data and the /volunteers endpoint return)
+ *   so the stat pills show correct counts instead of always zero.
  */
 
-export default function VolunteerPanel({ 
-  volunteers = [], 
-  incidents = [], 
-  onVolunteerClick, 
+export default function VolunteerPanel({
+  volunteers = [],
+  incidents = [],
+  onVolunteerClick,
   onPingVolunteer,
-  onViewAllVolunteers 
+  onViewAllVolunteers,
 }) {
   const [pingingId, setPingingId] = useState(null);
 
-  const getActiveIncidentCount = () => {
-    return incidents.filter((i) => i.status !== "RESOLVED").length;
-  };
+  const getActiveIncidentCount = () =>
+    incidents.filter((i) => i.status !== "RESOLVED").length;
 
   const getStatusBadgeClass = (status) => {
     const classes = {
       available: "status-available",
-      notified: "status-notified",
-      accepted: "status-accepted",
-      en_route: "status-enroute",
-      en_route: "status-enroute",
-      declined: "status-declined",
-      offline: "status-offline",
+      active:    "status-available",   // backend uses ACTIVE
+      notified:  "status-notified",
+      accepted:  "status-accepted",
+      en_route:  "status-enroute",     // FIX D: single entry
+      declined:  "status-declined",
+      offline:   "status-offline",
     };
     return classes[status?.toLowerCase?.()] || "status-notified";
   };
@@ -34,12 +41,12 @@ export default function VolunteerPanel({
   const getStatusIcon = (status) => {
     const icons = {
       available: "🟢",
-      notified: "📳",
-      accepted: "✓",
-      en_route: "🚗",
-      en_route: "🚗",
-      declined: "✗",
-      offline: "⚫",
+      active:    "🟢",
+      notified:  "📳",
+      accepted:  "✓",
+      en_route:  "🚗",                 // FIX D: single entry
+      declined:  "✗",
+      offline:   "⚫",
     };
     return icons[status?.toLowerCase?.()] || "•";
   };
@@ -47,31 +54,29 @@ export default function VolunteerPanel({
   const getStatusLabel = (status) => {
     const labels = {
       available: "Available",
-      notified: "Notified",
-      accepted: "Accepted",
-      en_route: "En Route",
-      en_route: "En Route",
-      declined: "Declined",
-      offline: "Offline",
+      active:    "Available",
+      notified:  "Notified",
+      accepted:  "Accepted",
+      en_route:  "En Route",           // FIX D: single entry
+      declined:  "Declined",
+      offline:   "Offline",
     };
     return labels[status?.toLowerCase?.()] || status;
   };
 
-  const availableVolunteers = volunteers.filter(
-    (v) => v.status === "available" || v.status === "notified"
-  );
-  const activeVolunteers = volunteers.filter(
-    (v) => v.status === "accepted" || v.status === "en_route" || v.status === "en_route"
+  const availableVolunteers = volunteers.filter((v) =>
+    ["available", "active", "notified"].includes(v.status?.toLowerCase?.())
   );
 
-  const handleVolunteerClick = (volunteer) => {
-    onVolunteerClick?.(volunteer);
-  };
+  const activeVolunteers = volunteers.filter((v) =>
+    ["accepted", "en_route"].includes(v.status?.toLowerCase?.())
+  );
+
+  const handleVolunteerClick = (volunteer) => onVolunteerClick?.(volunteer);
 
   const handlePingVolunteer = async (e, volunteerId) => {
     e.stopPropagation();
     setPingingId(volunteerId);
-    
     try {
       await onPingVolunteer?.(volunteerId);
     } catch (error) {
@@ -79,10 +84,6 @@ export default function VolunteerPanel({
     } finally {
       setTimeout(() => setPingingId(null), 1000);
     }
-  };
-
-  const handleViewAll = () => {
-    onViewAllVolunteers?.();
   };
 
   return (
@@ -115,7 +116,7 @@ export default function VolunteerPanel({
               onClick={() => handleVolunteerClick(v)}
             >
               <div className="volunteer-avatar">
-                {v.name.charAt(0).toUpperCase()}
+                {v.name?.charAt(0).toUpperCase() ?? "?"}
               </div>
               <div className="volunteer-info">
                 <div className="volunteer-name">{v.name}</div>
@@ -125,12 +126,12 @@ export default function VolunteerPanel({
                   </span>
                   {v.distance_m && v.status !== "offline" && (
                     <span className="distance-badge">
-                      📍 {v.distance_m}m • {v.eta_minutes || "?"} min
+                      📍 {v.distance_m}m • {v.eta_minutes ?? "?"} min
                     </span>
                   )}
                 </div>
               </div>
-              {(v.status === "available" || v.status === "notified") && (
+              {["available", "active", "notified"].includes(v.status?.toLowerCase?.()) && (
                 <button
                   className="btn btn-primary btn-sm"
                   onClick={(e) => handlePingVolunteer(e, v.id)}
@@ -138,11 +139,7 @@ export default function VolunteerPanel({
                   title="Ping volunteer"
                   style={{ minWidth: "36px", padding: "8px" }}
                 >
-                  {pingingId === v.id ? (
-                    <span className="animate-spin">📡</span>
-                  ) : (
-                    "📡"
-                  )}
+                  {pingingId === v.id ? <span className="animate-spin">📡</span> : "📡"}
                 </button>
               )}
             </div>
@@ -150,7 +147,6 @@ export default function VolunteerPanel({
         )}
       </div>
 
-      {/* Quick actions */}
       <div className="quick-actions">
         <button
           className="btn btn-secondary btn-full"
@@ -158,10 +154,7 @@ export default function VolunteerPanel({
         >
           📢 Broadcast Announcement
         </button>
-        <button 
-          className="btn btn-outline btn-full"
-          onClick={handleViewAll}
-        >
+        <button className="btn btn-outline btn-full" onClick={() => onViewAllVolunteers?.()}>
           📊 View All Volunteers ({volunteers.length})
         </button>
       </div>

@@ -1,134 +1,144 @@
 /**
  * useWebSocket — Spec Section 4.5
- * Connects to the FastAPI WebSocket endpoint and handles live incident events.
- * 
- * Event format (Spec Section 3.2):
- * { "type": "EVENT_NAME", "payload": { ... } }
- * 
- * Events:
- * - NEW_INCIDENT: fires when a new incident is created
- * - VOLUNTEER_UPDATE: fires when a volunteer responds
- * - INCIDENT_UPDATE: fires when incident status changes
- * - STATS_UPDATE: fires every 30 seconds with fresh stats
  *
- * @param {string} url - WebSocket URL (e.g. "ws://localhost:8000/ws")
- * @returns {{ incidents: Array, volunteers: Array, stats: Object, connected: boolean }}
+ * FIX 4: Reconnection was a no-op.
+ *   The original setTimeout callback only logged a message — it never
+ *   actually created a new WebSocket. If the Colab runtime refreshed its
+ *   ngrok URL, or the connection dropped for any reason, the dashboard
+ *   went permanently dark with no recovery path.
+ *
+ *   Fix: move the WebSocket construction into a ref'd `connect()` function
+ *   and schedule a real reconnection attempt from onclose, with exponential
+ *   backoff (1s → 2s → 4s → … capped at 30s) so a flapping connection
+ *   doesn't hammer the server.
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+
+const BASE_DELAY_MS = 1000;
+const MAX_DELAY_MS  = 30_000;
 
 export default function useWebSocket(url) {
-  const [incidents, setIncidents] = useState([]);
+  const [incidents,        setIncidents]        = useState([]);
   const [volunteerUpdates, setVolunteerUpdates] = useState([]);
-  const [stats, setStats] = useState({
-    incidents_today: 0,
-    active_incidents: 0,
+  const [stats,            setStats]            = useState({
+    incidents_today:          0,
+    active_incidents:         0,
     avg_volunteer_response_s: 94,
-    volunteers_active: 4,
+    volunteers_active:        4,
   });
   const [connected, setConnected] = useState(false);
-  const wsRef = useRef(null);
 
-  useEffect(() => {
+  const wsRef         = useRef(null);
+  const retryDelayRef = useRef(BASE_DELAY_MS);
+  const retryTimerRef = useRef(null);
+  const unmountedRef  = useRef(false);   // prevent state updates after unmount
+
+  // ── message handler (stable reference — no url dependency) ─────────────
+  const handleMessage = useCallback((event) => {
+    try {
+      const { type, payload } = JSON.parse(event.data);
+
+      switch (type) {
+        case 'NEW_INCIDENT':
+          setIncidents((prev) => [payload, ...prev].slice(0, 100));
+          break;
+
+        case 'VOLUNTEER_UPDATE':
+          setVolunteerUpdates((prev) => [payload, ...prev].slice(0, 50));
+          break;
+
+        case 'INCIDENT_UPDATE':
+          setIncidents((prev) =>
+            prev.map((inc) => (inc.id === payload.id ? { ...inc, ...payload } : inc))
+          );
+          break;
+
+        case 'STATS_UPDATE':
+          setStats(payload);
+          break;
+
+        default:
+          // Legacy: bare incident object without type envelope
+          if (payload?.id) {
+            setIncidents((prev) => [payload, ...prev].slice(0, 100));
+          }
+          console.log('[WS] Unknown event type:', type);
+      }
+    } catch (e) {
+      console.error('[WS] Parse error:', e, event.data);
+    }
+  }, []);
+
+  // ── core connect function ───────────────────────────────────────────────
+  const connect = useCallback(() => {
+    if (unmountedRef.current) return;
+
+    // Tear down any existing socket before opening a new one
+    if (wsRef.current) {
+      wsRef.current.onclose = null;   // prevent the old close from scheduling another retry
+      wsRef.current.close();
+    }
+
+    console.log('[WS] Connecting to', url);
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
     ws.onopen = () => {
+      if (unmountedRef.current) return;
       setConnected(true);
+      retryDelayRef.current = BASE_DELAY_MS;   // reset backoff on successful connect
       console.log('[WS] Connected to SENTINEL backend');
-      // Subscribe to all zones
-      ws.send(JSON.stringify({
-        type: 'SUBSCRIBE',
-        payload: { zones: ['all'] }
-      }));
+      ws.send(JSON.stringify({ type: 'SUBSCRIBE', payload: { zones: ['all'] } }));
     };
 
-    ws.onclose = () => {
+    ws.onclose = (evt) => {
+      if (unmountedRef.current) return;
       setConnected(false);
-      console.log('[WS] Disconnected from SENTINEL backend');
-      // Attempt reconnection after 3 seconds
-      setTimeout(() => {
-        console.log('[WS] Attempting reconnection...');
-        // Window will reload effect will reconnect
-      }, 3000);
+      console.log(`[WS] Disconnected (code ${evt.code}). Reconnecting in ${retryDelayRef.current}ms…`);
+
+      // FIX 4: schedule a real reconnection attempt
+      retryTimerRef.current = setTimeout(() => {
+        if (!unmountedRef.current) {
+          retryDelayRef.current = Math.min(retryDelayRef.current * 2, MAX_DELAY_MS);
+          connect();
+        }
+      }, retryDelayRef.current);
     };
 
     ws.onerror = (error) => {
       console.error('[WS] Error:', error);
+      // onclose fires automatically after onerror — reconnect happens there
     };
 
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        const { type, payload } = message;
+    ws.onmessage = handleMessage;
+  }, [url, handleMessage]);
 
-        switch (type) {
-          case 'NEW_INCIDENT':
-            // Prepend new incident to the list
-            setIncidents((prev) => {
-              const newIncidents = [payload, ...prev].slice(0, 100); // keep last 100
-              return newIncidents;
-            });
-            break;
+  // ── lifecycle ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    unmountedRef.current = false;
+    connect();
 
-          case 'VOLUNTEER_UPDATE':
-            // Update volunteer status for matching incident
-            setVolunteerUpdates((prev) => [payload, ...prev].slice(0, 50));
-            break;
-
-          case 'INCIDENT_UPDATE':
-            // Update incident status in the list
-            setIncidents((prev) =>
-              prev.map((inc) =>
-                inc.id === payload.id ? { ...inc, ...payload } : inc
-              )
-            );
-            break;
-
-          case 'STATS_UPDATE':
-            // Update dashboard stats
-            setStats(payload);
-            break;
-
-          default:
-            // Handle legacy format (direct incident object without type envelope)
-            if (payload && payload.id) {
-              setIncidents((prev) => [payload, ...prev].slice(0, 100));
-            }
-            console.log('[WS] Unknown event type:', type);
-        }
-      } catch (e) {
-        console.error('[WS] Parse error:', e, event.data);
+    return () => {
+      unmountedRef.current = true;
+      clearTimeout(retryTimerRef.current);
+      if (wsRef.current) {
+        wsRef.current.onclose = null;   // don't reconnect on intentional unmount
+        wsRef.current.close();
       }
     };
+  }, [connect]);   // connect is stable as long as url doesn't change
 
-    return () => {
-      ws.close();
-    };
-  }, [url]);
-
-  // Listen for incident resolve events from Dashboard
+  // ── incident-resolved custom event (from Dashboard) ────────────────────
   useEffect(() => {
-    const handleResolveEvent = (event) => {
-      const { incidentId } = event.detail;
-      console.log('🔵 Updating incident status to RESOLVED:', incidentId);
+    const handler = ({ detail: { incidentId } }) => {
       setIncidents((prev) =>
-        prev.map((inc) =>
-          inc.id === incidentId ? { ...inc, status: 'RESOLVED' } : inc
-        )
+        prev.map((inc) => (inc.id === incidentId ? { ...inc, status: 'RESOLVED' } : inc))
       );
     };
-
-    window.addEventListener('incident-resolved', handleResolveEvent);
-    return () => {
-      window.removeEventListener('incident-resolved', handleResolveEvent);
-    };
+    window.addEventListener('incident-resolved', handler);
+    return () => window.removeEventListener('incident-resolved', handler);
   }, []);
 
-  return {
-    incidents,
-    volunteers: volunteerUpdates,
-    stats,
-    connected
-  };
+  return { incidents, volunteers: volunteerUpdates, stats, connected };
 }

@@ -14,43 +14,17 @@ export default function ClassificationBars({ scores = [] }) {
     if (typeof scores === 'object') return Object.values(scores);
     return [];
   }, [scores]);
-  
-  // Color mapping for different sound types
-  const colors = {
-    distress_scream: '#FF3B5C',
-    glass_break: '#FF3B5C',
-    gunshot: '#FF3B5C',
-    explosion: '#FF3B5C',
-    screaming: '#FF3B5C',
-    shatter: '#FF3B5C',
-    impact_thud: '#FF8C00',
-    thud: '#FF8C00',
-    siren: '#FF8C00',
-    alarm: '#FFD600',
-    speech: '#00E5FF',
-    laughter: '#00E5FF',
-    music: '#00E5FF',
-    crowd: '#00E5FF',
-    default: '#64748b',
-  };
-
-  const getColor = (label) => {
-    const lowerLabel = label.toLowerCase();
-    for (const [key, color] of Object.entries(colors)) {
-      if (lowerLabel.includes(key.toLowerCase())) {
-        return color;
-      }
+  const getColor = (severity) => {
+    switch (severity?.toUpperCase()) {
+      case 'CRITICAL': return '#FF3B5C';
+      case 'HIGH': return '#FF8C00';
+      case 'MEDIUM': return '#FFD600';
+      default: return '#00E5FF';
     }
-    return colors.default;
   };
 
-  const isIncidentClass = (label) => {
-    const incidentClasses = [
-      'distress_scream', 'glass_break', 'gunshot', 'explosion',
-      'screaming', 'shatter', 'impact_thud', 'thud', 'siren', 'alarm'
-    ];
-    const lowerLabel = label.toLowerCase();
-    return incidentClasses.some(cls => lowerLabel.includes(cls));
+  const isIncidentClass = (severity) => {
+    return ['CRITICAL', 'HIGH', 'MEDIUM'].includes(severity?.toUpperCase());
   };
 
   if (!safeScores || safeScores.length === 0) {
@@ -74,13 +48,14 @@ export default function ClassificationBars({ scores = [] }) {
       </div>
       <div className="bars-container">
         {safeScores.map((score, index) => {
-          // Safely extract properties
-          const label = score?.label || score?.class || score?.sentinel_label || String(score) || 'Unknown';
+          // Only display the human-readable class name unless overridden
+          const label = score?.class || score?.sentinel_label || score?.label || String(score) || 'Unknown';
           const confidence = score?.confidence || score?.score || 0;
+          const severity = score?.severity || 'LOW';
           const percentage = typeof confidence === 'number' ? (confidence * 100).toFixed(1) : '0.0';
-          const color = getColor(label);
+          const color = getColor(severity);
           const isWinner = index === 0;
-          const isIncident = isIncidentClass(label);
+          const isIncident = isIncidentClass(severity);
 
           return (
             <div key={label + index} className={`result-bar ${isWinner ? 'winner' : ''}`}>

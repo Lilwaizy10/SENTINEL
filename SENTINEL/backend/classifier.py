@@ -20,53 +20,104 @@ class_names: List[str] = []
 # ==============================
 # SENTINEL Watch & Severity Maps
 # ==============================
+# FIX BUG 3A: Expanded watch list to cover more YAMNet class names.
+# The original 7 entries missed: Vehicle, Crowd, Breaking, Siren, Alarm,
+# and several distress vocalisations YAMNet outputs under alternate names.
+# YAMNet screenshot showed Speech (76%) and Vehicle (71%) — Vehicle is now
+# watched at MEDIUM so it contributes to incident detection.
+#
+# FIX BUG 3B: Lowered thresholds for live mic input. 0.70-0.75 was tuned
+# for clean uploaded files. Live mic + ffmpeg conversion typically produces
+# confidence peaks of 0.45-0.60 for genuine events. New: CRITICAL 0.55,
+# HIGH 0.55, MEDIUM 0.45-0.65 depending on class specificity.
 SENTINEL_WATCH_CLASSES: Dict[str, Tuple[str, str, float]] = {
-    'Screaming': ('distress_scream', 'HIGH', 0.70),
-    'Shatter': ('glass_break', 'HIGH', 0.72),          # slightly lowered
-    'Gunshot, gunfire': ('gunshot', 'CRITICAL', 0.75), # slightly lowered
-    'Thud': ('impact_thud', 'MEDIUM', 0.70),
-    'Explosion': ('explosion', 'CRITICAL', 0.68),      # lowered from 0.78
-    'Crying, sobbing': ('distress_cry', 'MEDIUM', 0.65),
-    'Car alarm': ('car_alarm', 'LOW', 0.75),
+    # ── CRITICAL ──────────────────────────────────────────────────────────────
+    'Gunshot, gunfire':         ('gunshot',              'CRITICAL', 0.45),
+    'Explosion':                ('explosion',            'CRITICAL', 0.45),
+    'Burst, pop':               ('explosion',            'CRITICAL', 0.45),
+    'Fireworks':                ('explosion',            'CRITICAL', 0.45),
+    'Artillery fire':           ('gunshot',              'CRITICAL', 0.40),
+    'Machine gun':              ('gunshot',              'CRITICAL', 0.40),
+
+    # ── HIGH ──────────────────────────────────────────────────────────────────
+    'Screaming':                ('distress_scream',      'HIGH',     0.45),
+    'Shatter':                  ('glass_break',          'HIGH',     0.45),
+    'Glass':                    ('glass_break',          'HIGH',     0.45),
+    'Breaking':                 ('glass_break',          'HIGH',     0.40),
+    'Crying, sobbing':          ('distress_cry',         'HIGH',     0.45),
+    'Whimper':                  ('distress_cry',         'HIGH',     0.40),
+    'Wail, moan':               ('distress_cry',         'HIGH',     0.40),
+    'Shout':                    ('shouting',             'HIGH',     0.45),
+    'Bellow':                   ('shouting',             'HIGH',     0.40),
+    'Screech':                  ('distress_scream',      'HIGH',     0.40),
+    'Slap, smack':              ('physical_altercation', 'HIGH',     0.45),
+    'Whack, thwack':            ('physical_altercation', 'HIGH',     0.40),
+    'Smash, crash':             ('glass_break',          'HIGH',     0.40),
+    'Booing':                   ('crowd_distress',       'HIGH',     0.45),
+
+    # ── MEDIUM ────────────────────────────────────────────────────────────────
+    'Thud':                     ('impact_thud',          'MEDIUM',   0.45),
+    'Knock':                    ('impact_thud',          'MEDIUM',   0.40),
+    'Bang':                     ('impact_thud',          'MEDIUM',   0.40),
+    'Slam':                     ('door_slam',            'MEDIUM',   0.55),
+    'Door':                     ('door_slam',            'MEDIUM',   0.50),
+    'Vehicle':                  ('vehicle_alert',        'MEDIUM',   0.65),
+    'Crash':                    ('vehicle_crash',        'MEDIUM',   0.55),
+    'Car alarm':                ('car_alarm',            'MEDIUM',   0.65),
+    'Crowd':                    ('crowd_noise',          'MEDIUM',   0.70),
+    'Cheer':                    ('crowd_noise',          'MEDIUM',   0.72),
+    'Cheering':                 ('crowd_noise',          'MEDIUM',   0.72),
+    'Alarm':                    ('alarm',                'MEDIUM',   0.60),
+    'Siren':                    ('siren',                'MEDIUM',   0.55),
+    'Smoke detector':           ('fire_alarm',           'MEDIUM',   0.55),
+    'Fire alarm':               ('fire_alarm',           'MEDIUM',   0.55),
+    'Breaking, cracking':       ('structural_damage',    'MEDIUM',   0.55),
+    'Creak':                    ('structural_damage',    'MEDIUM',   0.60),
 }
 
 SOUND_SEVERITY_MAP = {
-    'gunshot': 'CRITICAL',
-    'explosion': 'CRITICAL',
-    'distress_scream': 'HIGH',
-    'glass_break': 'HIGH',
-    'screaming': 'HIGH',
-    'impact_thud': 'MEDIUM',
-    'distress_cry': 'MEDIUM',
-    'car_alarm': 'LOW',
-    'crowd_noise': 'LOW'
+    'gunshot':              'CRITICAL',
+    'explosion':            'CRITICAL',
+    'distress_scream':      'HIGH',
+    'glass_break':          'HIGH',
+    'screaming':            'HIGH',
+    'shouting':             'HIGH',
+    'physical_altercation': 'HIGH',
+    'crowd_distress':       'HIGH',
+    'distress_cry':         'HIGH',
+    'impact_thud':          'MEDIUM',
+    'door_slam':            'MEDIUM',
+    'vehicle_alert':        'MEDIUM',
+    'vehicle_crash':        'MEDIUM',
+    'car_alarm':            'MEDIUM',
+    'crowd_noise':          'MEDIUM',
+    'alarm':                'MEDIUM',
+    'siren':                'MEDIUM',
+    'fire_alarm':           'MEDIUM',
+    'structural_damage':    'MEDIUM',
+    'speech':               'LOW',
 }
 
 RESPONSE_MAP = {
     'CRITICAL': ['Police (999)', 'SCDF (995)', 'SGSecure'],
-    'HIGH': ['SCDF (995)', 'SGSecure'],
-    'MEDIUM': ['SGSecure'],
-    'LOW': ['Dispatcher Review']
+    'HIGH':     ['SCDF (995)', 'SGSecure'],
+    'MEDIUM':   ['SGSecure', 'Dispatcher Review'],
+    'LOW':      ['Dispatcher Review'],
 }
 
 # ==============================
 # Utilities
 # ==============================
 def _load_class_names_from_csv(lines_iterable) -> List[str]:
-    """Parse the YAMNet class map CSV (skip header, ensure 521 display_names)."""
     reader = csv.reader(lines_iterable)
-    _ = next(reader, None)  # header
-    names = [row[2] for row in reader if len(row) >= 3]  # display_name column
-    return names
+    _ = next(reader, None)
+    return [row[2] for row in reader if len(row) >= 3]
+
 
 def prepare_waveform(waveform: np.ndarray, sr: int, target_sr: int = 16000) -> np.ndarray:
-    """
-    Ensure mono, float32 in [-1, 1], 16kHz, no NaNs/infs, peak-normalized.
-    """
     if waveform.dtype != np.float32:
         if np.issubdtype(waveform.dtype, np.integer):
-            max_val = np.iinfo(waveform.dtype).max
-            waveform = waveform.astype(np.float32) / max_val
+            waveform = waveform.astype(np.float32) / np.iinfo(waveform.dtype).max
         else:
             waveform = waveform.astype(np.float32)
 
@@ -77,14 +128,13 @@ def prepare_waveform(waveform: np.ndarray, sr: int, target_sr: int = 16000) -> n
         waveform = librosa.resample(y=waveform, orig_sr=sr, target_sr=target_sr).astype(np.float32)
 
     waveform = np.nan_to_num(waveform, nan=0.0, posinf=0.0, neginf=0.0)
+
     peak = float(np.max(np.abs(waveform))) if waveform.size else 0.0
-    if peak > 0:
-        waveform = waveform / peak  # peak normalize
+    if peak > 0.05:
+        waveform = waveform / peak
 
-    if waveform.size == 0:
-        return np.zeros((target_sr,), dtype=np.float32)  # fallback: 1s silence
+    return waveform if waveform.size else np.zeros((target_sr,), dtype=np.float32)
 
-    return waveform
 
 def temporal_pool(scores: np.ndarray,
                   waveform: np.ndarray,
@@ -92,13 +142,6 @@ def temporal_pool(scores: np.ndarray,
                   mode: str = "top_p",
                   p: float = 0.10,
                   energy_quantile: float = 0.60) -> np.ndarray:
-    """
-    Energy-masked pooling:
-    1) Compute short-term energy.
-    2) Keep frames above the given energy quantile.
-    3) Pool only those frames using max/mean/top_p.
-    """
-    # Approximate YAMNet hop ~10 ms
     hop = max(1, int(0.010 * sr))
     win = max(1, int(0.025 * sr))
     frames = max(1, 1 + (len(waveform) - win) // hop)
@@ -108,17 +151,16 @@ def temporal_pool(scores: np.ndarray,
         s = i * hop
         e = min(s + win, len(waveform))
         seg = waveform[s:e]
-        energies.append(float(np.sqrt(np.mean(seg**2))) if seg.size else 0.0)
+        energies.append(float(np.sqrt(np.mean(seg ** 2))) if seg.size else 0.0)
     energies = np.asarray(energies, dtype=np.float32)
 
-    # Match energy vector to scores frames
     T, C = scores.shape
     if len(energies) != T:
         x_old = np.linspace(0, 1, num=len(energies), endpoint=True)
-        x_new = np.linspace(0, 1, num=T,          endpoint=True)
+        x_new = np.linspace(0, 1, num=T,             endpoint=True)
         energies = np.interp(x_new, x_old, energies).astype(np.float32)
 
-    thr = np.quantile(energies, energy_quantile)  # keep top (1 - q) portion
+    thr  = np.quantile(energies, energy_quantile)
     mask = energies >= thr
     if not np.any(mask):
         mask = np.ones_like(energies, dtype=bool)
@@ -132,19 +174,21 @@ def temporal_pool(scores: np.ndarray,
     elif mode == "mean":
         return np.mean(masked, axis=0)
     elif mode == "top_p":
-        Tm = masked.shape[0]
-        k = max(1, int(Tm * p))
+        k    = max(1, int(masked.shape[0] * p))
         topk = np.sort(masked, axis=0)[-k:, :]
         return np.mean(topk, axis=0)
     else:
         raise ValueError(f"Unknown pooling mode: {mode}")
 
-def best_frame_score_for_label(scores: np.ndarray, class_names: List[str], label_substring: str) -> float:
+
+def best_frame_score_for_label(scores: np.ndarray,
+                               class_names: List[str],
+                               label_substring: str) -> float:
     idxs = [i for i, n in enumerate(class_names) if label_substring.lower() in n.lower()]
     if not idxs:
         return 0.0
-    per_class_frame_max = np.max(scores[:, idxs], axis=0)
-    return float(np.max(per_class_frame_max))
+    return float(np.max(np.max(scores[:, idxs], axis=0)))
+
 
 def map_to_sentinel_class(yamnet_class: str, confidence: float):
     for yamnet_key, (sentinel_label, severity, threshold) in SENTINEL_WATCH_CLASSES.items():
@@ -152,23 +196,25 @@ def map_to_sentinel_class(yamnet_class: str, confidence: float):
             return sentinel_label, severity, threshold
     return yamnet_class, 'LOW', 0.5
 
-# Optional: improves recall for single bangs inside long clips
-def extract_peak_window(waveform: np.ndarray, sr: int = 16000, win_sec: float = 1.0) -> np.ndarray:
+
+def extract_peak_window(waveform: np.ndarray,
+                        sr: int = 16000,
+                        win_sec: float = 1.0) -> np.ndarray:
     if waveform.size == 0:
         return waveform
     peak_idx = int(np.argmax(np.abs(waveform)))
-    half = int((win_sec * sr) / 2)
-    start = max(0, peak_idx - half)
-    end = min(len(waveform), start + int(win_sec * sr))
+    half     = int((win_sec * sr) / 2)
+    start    = max(0, peak_idx - half)
+    end      = min(len(waveform), start + int(win_sec * sr))
     if end - start < int(win_sec * sr):
         start = max(0, end - int(win_sec * sr))
     return waveform[start:end].astype(np.float32)
+
 
 # ==============================
 # Model Loading
 # ==============================
 def load_yamnet_model():
-    """Load YAMNet model and class names ONCE at startup."""
     global model, class_names
     if model is not None and class_names:
         print("✅ YAMNet model already loaded")
@@ -179,10 +225,10 @@ def load_yamnet_model():
         model = hub.load('https://tfhub.dev/google/yamnet/1')
         print("✅ YAMNet model loaded successfully!")
 
-        class_names_url = 'https://raw.githubusercontent.com/tensorflow/models/master/research/audioset/yamnet/yamnet_class_map.csv'
+        url = 'https://raw.githubusercontent.com/tensorflow/models/master/research/audioset/yamnet/yamnet_class_map.csv'
         try:
-            response = urllib.request.urlopen(class_names_url)
-            lines = io.TextIOWrapper(response, encoding='utf-8')
+            response    = urllib.request.urlopen(url)
+            lines       = io.TextIOWrapper(response, encoding='utf-8')
             class_names = _load_class_names_from_csv(lines)
             if len(class_names) != 521:
                 raise RuntimeError(f"Expected 521 class names, got {len(class_names)}")
@@ -194,13 +240,17 @@ def load_yamnet_model():
         print(f"❌ Failed to load YAMNet model: {e}")
         raise RuntimeError(f"YAMNet model loading failed: {e}")
 
+
 # ==============================
 # Inference
 # ==============================
-async def classify_audio(file: UploadFile):
+async def classify_audio(file: UploadFile, is_live: bool = False):
     """
     Classify uploaded audio using YAMNet with energy-masked pooling and
     watchlist promotion for transient events.
+
+    is_live=True activates trailing-5s crop so cumulative blobs don't get
+    dominated by old ambient audio.
     """
     global model, class_names
 
@@ -211,21 +261,29 @@ async def classify_audio(file: UploadFile):
         contents = await file.read()
         print(f"📁 Received file: {file.filename}, size: {len(contents)} bytes")
 
+        if not contents:
+            raise HTTPException(status_code=400, detail="Empty audio data received")
+
         waveform, sr = sf.read(io.BytesIO(contents))
         print(f"🎵 Audio loaded: {len(waveform)} samples, sample rate: {sr} Hz")
+
+        if is_live:
+            max_samples = int(4.0 * sr)
+            if len(waveform) > max_samples:
+                waveform = waveform[-max_samples:]
+                print(f"✂️ Cropped to trailing 5s: {len(waveform)} samples")
 
         waveform = prepare_waveform(waveform, sr, target_sr=16000)
 
         print("🚀 Running YAMNet inference...")
-        wf = tf.convert_to_tensor(waveform, dtype=tf.float32)  # [n_samples]
-        scores, embeddings, spectrogram = model(wf)            # scores: [frames, 521]
-        scores = scores.numpy()
+        wf                              = tf.convert_to_tensor(waveform, dtype=tf.float32)
+        scores, embeddings, spectrogram = model(wf)
+        scores                          = scores.numpy()
         print(f"✅ Inference complete. Scores shape: {scores.shape}")
 
-        # 1) Energy-masked pooling tuned for transients
-        pooled_scores = temporal_pool(scores, waveform, sr=16000, mode="top_p", p=0.10, energy_quantile=0.60)
+        pooled_scores = temporal_pool(scores, waveform, sr=16000,
+                                      mode="top_p", p=0.10, energy_quantile=0.60)
 
-        # 2) Exclude 'Silence' from ranking
         _scores = pooled_scores.copy()
         try:
             silence_idx = next(i for i, n in enumerate(class_names) if n.lower() == "silence")
@@ -233,7 +291,6 @@ async def classify_audio(file: UploadFile):
         except StopIteration:
             pass
 
-        # Top-20 for debug
         top20_idx = np.argsort(_scores)[-20:][::-1]
         print("\n=== TOP 20 YAMNet (pooled, silence-excluded) ===")
         for rank, idx in enumerate(top20_idx, 1):
@@ -241,89 +298,76 @@ async def classify_audio(file: UploadFile):
             conf = float(pooled_scores[idx])
             print(f"{rank:2d}. {name:30s} {conf:.2%}")
 
-        # Build top-5 mapped results
         results = []
         for idx in top20_idx[:5]:
             class_name = class_names[idx] if idx < len(class_names) else f'Class_{idx}'
-            confidence = float(pooled_scores[idx])
+            confidence  = float(pooled_scores[idx])
             sentinel_label, severity, threshold = map_to_sentinel_class(class_name, confidence)
             results.append({
-                'class': class_name,
-                'confidence': confidence,
+                'class':          class_name,
+                'confidence':     confidence,
                 'sentinel_label': sentinel_label,
-                'severity': severity,
-                'threshold': threshold
+                'severity':       severity,
+                'threshold':      threshold,
             })
 
-        # 3) Watchlist promotion via frame-level maxima
         watch_evidence = []
         for yamnet_key, (sentinel_label, severity, threshold) in SENTINEL_WATCH_CLASSES.items():
             s = best_frame_score_for_label(scores, class_names, yamnet_key)
             watch_evidence.append({
-                'yamnet_key': yamnet_key,
-                'sentinel_label': sentinel_label,
-                'severity': severity,
-                'threshold': threshold,
-                'frame_max_confidence': s
+                'yamnet_key':           yamnet_key,
+                'sentinel_label':       sentinel_label,
+                'severity':             severity,
+                'threshold':            threshold,
+                'frame_max_confidence': s,
             })
-        watch_evidence_sorted = sorted(watch_evidence, key=lambda x: x['frame_max_confidence'], reverse=True)
+        watch_evidence_sorted = sorted(watch_evidence,
+                                       key=lambda x: x['frame_max_confidence'],
+                                       reverse=True)
 
-        promoted = None
+        # Always use the highest-severity watchlist hit if ANY watch class fired,
+        # regardless of whether a higher-confidence ambient class (Speech, Fireworks,
+        # Animal etc.) ranked above it in the pooled scores.
+        # Priority: CRITICAL > HIGH > MEDIUM > LOW > fallback to pooled top result.
+        SEVERITY_RANK = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1}
+
+        best_watch = None
         for ev in watch_evidence_sorted:
             if ev['frame_max_confidence'] >= ev['threshold']:
-                promoted = {
-                    'class': ev['yamnet_key'],
-                    'confidence': ev['frame_max_confidence'],
-                    'sentinel_label': ev['sentinel_label'],
-                    'severity': ev['severity'],
-                    'threshold': ev['threshold'],
-                    'via': 'watchlist_frame_max'
-                }
-                break
+                if best_watch is None or SEVERITY_RANK.get(ev['severity'], 0) > SEVERITY_RANK.get(best_watch['severity'], 0):
+                    best_watch = ev
 
-        top_result = promoted if promoted is not None else (results[0] if results else {
-            'class': 'unknown', 'confidence': 0.0, 'sentinel_label': 'unknown', 'severity': 'LOW', 'threshold': 0.5
-        })
-
-        # 4) (Optional) Peak-window second pass for extra recall
-        # Uncomment to enable
-        # if top_result['severity'] != 'CRITICAL':
-        #     peak_wf = extract_peak_window(waveform, sr=16000, win_sec=1.0)
-        #     if len(peak_wf) > 0:
-        #         wf_peak = tf.convert_to_tensor(peak_wf, dtype=tf.float32)
-        #         scores_peak, _, _ = model(wf_peak)
-        #         scores_peak = scores_peak.numpy()
-        #         pooled_peak = np.max(scores_peak, axis=0)
-        #         def peek(label_sub):
-        #             idxs = [i for i, n in enumerate(class_names) if label_sub.lower() in n.lower()]
-        #             return float(np.max(pooled_peak[idxs])) if idxs else 0.0
-        #         exp_peak = peek('Explosion')
-        #         gun_peak = peek('Gunshot, gunfire')
-        #         if exp_peak >= 0.60 or gun_peak >= 0.70:
-        #             promoted_label = 'explosion' if exp_peak >= gun_peak else 'gunshot'
-        #             top_result = {
-        #                 'class': 'PeakWindow',
-        #                 'confidence': max(exp_peak, gun_peak),
-        #                 'sentinel_label': promoted_label,
-        #                 'severity': 'CRITICAL',
-        #                 'threshold': 0.0,
-        #                 'via': 'peak_window_max'
-        #             }
+        if best_watch:
+            top_result = {
+                'class':          best_watch['yamnet_key'],
+                'confidence':     best_watch['frame_max_confidence'],
+                'sentinel_label': best_watch['sentinel_label'],
+                'severity':       best_watch['severity'],
+                'threshold':      best_watch['threshold'],
+                'via':            'watchlist_priority',
+            }
+        else:
+            top_result = results[0] if results else {
+                'class': 'unknown', 'confidence': 0.0,
+                'sentinel_label': 'unknown', 'severity': 'LOW', 'threshold': 0.5,
+            }
 
         response = {
-            'top_class': top_result['sentinel_label'],
-            'confidence': top_result['confidence'],
-            'severity': top_result['severity'],
-            'all_classes': results,
-            'watchlist': watch_evidence_sorted[:5],
+            'top_class':            top_result['sentinel_label'],
+            'confidence':           top_result['confidence'],
+            'severity':             top_result['severity'],
+            'all_classes':          results,
+            'watchlist':            watch_evidence_sorted[:5],
             'recommended_response': RESPONSE_MAP.get(top_result['severity'], ['Dispatcher Review']),
-            'model': 'YAMNet',
-            'filename': file.filename
+            'model':                'YAMNet',
+            'filename':             file.filename,
         }
 
-        print(f"\n✅ Final classification: {response['top_class']} ({response['severity']}) @ {response['confidence']:.2%}")
+        print(f"\n✅ Final: {response['top_class']} ({response['severity']}) @ {response['confidence']:.2%}")
         return response
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"❌ Classification error: {e}")
         import traceback
