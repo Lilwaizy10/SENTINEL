@@ -289,7 +289,7 @@ async def classify_audio(file: UploadFile, is_live: bool = False):
         # there is no real sound event — skip inference entirely.
         rms = float(np.sqrt(np.mean(waveform ** 2)))
         print(f"🔊 RMS energy: {rms:.4f}")
-        if is_live and rms < 0.02:
+        if is_live and rms < 0.15:
             print("🔇 Silent chunk — skipping inference")
             return {
                 'top_class': 'silence', 'confidence': 0.0, 'severity': 'LOW',

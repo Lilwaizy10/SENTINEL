@@ -78,8 +78,10 @@ model_loaded = False
 # Prevents the same classification from firing a new incident card on every
 # 1-second chunk. A sound_type is suppressed if it was broadcast within the
 # last DEBOUNCE_SECONDS seconds.
-_last_broadcast: dict = {}      # sound_type -> timestamp (float)
-DEBOUNCE_SECONDS = 5
+_last_broadcast: dict = {}
+DEBOUNCE_SECONDS = 15
+_last_any_broadcast: float = 0.0   # global cooldown across all sound types
+GLOBAL_COOLDOWN_SECONDS = 10
 
 # FIX #17: Only broadcast MEDIUM / HIGH / CRITICAL to the alert feed.
 # LOW (car_alarm etc.) and unrecognised classes are logged only, matching
@@ -180,8 +182,23 @@ async def websocket_endpoint(websocket: WebSocket):
 async def _build_and_broadcast_incident(result: dict) -> dict | None:
     severity   = (result.get("severity") or "LOW").upper()
     sound_type = result.get("top_class", "unknown")
-# Normalise vehicle family to one debounce key so vehicle/vehicle_alert/
-# vehicle_crash all share the same cooldown bucket
+
+    # FIX #17: Only broadcast MEDIUM and above
+    if severity not in BROADCAST_SEVERITIES:
+        print(f"[LOG_ONLY] {sound_type} @ {severity} — below broadcast threshold")
+        return None
+
+    now = time.time()   # ← must be defined FIRST before any time comparisons
+
+    global _last_any_broadcast
+
+    # Global cooldown — after ANY incident, nothing fires for 10s
+    if now - _last_any_broadcast < GLOBAL_COOLDOWN_SECONDS:
+        remaining = round(GLOBAL_COOLDOWN_SECONDS - (now - _last_any_broadcast), 1)
+        print(f"[COOLDOWN] Global cooldown active — {remaining}s remaining")
+        return None
+
+    # Per-type debounce
     DEBOUNCE_FAMILY = {
         'vehicle_alert': 'vehicle_family',
         'vehicle_crash': 'vehicle_family',
@@ -189,21 +206,15 @@ async def _build_and_broadcast_incident(result: dict) -> dict | None:
     }
     debounce_key = DEBOUNCE_FAMILY.get(sound_type, sound_type)
 
-    # FIX #17: Only broadcast MEDIUM and above — LOW is LOG_ONLY per spec.
-    if severity not in BROADCAST_SEVERITIES:
-        print(f"[LOG_ONLY] {sound_type} @ {severity} — below broadcast threshold")
-        return None
-
-    # FIX #18: Debounce — skip if this sound_type was broadcast recently.
-    now = time.time()
     last = _last_broadcast.get(debounce_key, 0)
     if now - last < DEBOUNCE_SECONDS:
         remaining = round(DEBOUNCE_SECONDS - (now - last), 1)
         print(f"[DEBOUNCE] {sound_type} suppressed — {remaining}s remaining")
         return None
-    _last_broadcast[debounce_key] = now
 
-    # FIX #19: uuid4 instead of deprecated asyncio.get_event_loop().time()
+    _last_broadcast[debounce_key] = now
+    _last_any_broadcast = now
+
     incident_id = f"inc_{uuid4().hex[:8]}"
     incident = {
         "id":                   incident_id,
