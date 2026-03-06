@@ -20,36 +20,31 @@ class_names: List[str] = []
 # ==============================
 # SENTINEL Watch & Severity Maps
 # ==============================
-# FIX BUG 3A: Expanded watch list to cover more YAMNet class names.
-# The original 7 entries missed: Vehicle, Crowd, Breaking, Siren, Alarm,
-# and several distress vocalisations YAMNet outputs under alternate names.
-# YAMNet screenshot showed Speech (76%) and Vehicle (71%) — Vehicle is now
-# watched at MEDIUM so it contributes to incident detection.
-#
-# FIX BUG 3B: Lowered thresholds for live mic input. 0.70-0.75 was tuned
-# for clean uploaded files. Live mic + ffmpeg conversion typically produces
-# confidence peaks of 0.45-0.60 for genuine events. New: CRITICAL 0.55,
-# HIGH 0.55, MEDIUM 0.45-0.65 depending on class specificity.
+# CRITICAL thresholds raised back to 0.62 — at 0.45 codec artifacts from
+# WebM→WAV conversion (Wood, Rain, Crackle, Rustle) were crossing the threshold
+# and triggering false explosion cards on silent chunks.
+# HIGH/MEDIUM stay low (0.40-0.45) since voice events are reliably loud on mic.
 SENTINEL_WATCH_CLASSES: Dict[str, Tuple[str, str, float]] = {
     # ── CRITICAL ──────────────────────────────────────────────────────────────
-    'Gunshot, gunfire':         ('gunshot',              'CRITICAL', 0.45),
-    'Explosion':                ('explosion',            'CRITICAL', 0.45),
-    'Burst, pop':               ('explosion',            'CRITICAL', 0.45),
-    'Fireworks':                ('explosion',            'CRITICAL', 0.45),
-    'Artillery fire':           ('gunshot',              'CRITICAL', 0.40),
-    'Machine gun':              ('gunshot',              'CRITICAL', 0.40),
+    'Gunshot, gunfire':         ('gunshot',              'CRITICAL', 0.62),
+    'Explosion':                ('explosion',            'CRITICAL', 0.62),
+    'Burst, pop':               ('explosion',            'CRITICAL', 0.62),
+    'Fireworks':                ('explosion',            'CRITICAL', 0.62),
+    'Artillery fire':           ('gunshot',              'CRITICAL', 0.55),
+    'Machine gun':              ('gunshot',              'CRITICAL', 0.55),
 
     # ── HIGH ──────────────────────────────────────────────────────────────────
-    'Screaming':                ('distress_scream',      'HIGH',     0.45),
+    'Screaming':                ('distress_scream',      'HIGH',     0.30),
+    'Shout':                    ('shouting',             'HIGH',     0.30),
+    'Screech':                  ('distress_scream',      'HIGH',     0.30),
+    'Yell':                     ('distress_scream',      'HIGH',     0.30),
+    'Crying, sobbing':          ('distress_cry',         'HIGH',     0.30),
+    'Wail, moan':               ('distress_cry',         'HIGH',     0.30),
     'Shatter':                  ('glass_break',          'HIGH',     0.45),
     'Glass':                    ('glass_break',          'HIGH',     0.45),
     'Breaking':                 ('glass_break',          'HIGH',     0.40),
-    'Crying, sobbing':          ('distress_cry',         'HIGH',     0.45),
     'Whimper':                  ('distress_cry',         'HIGH',     0.40),
-    'Wail, moan':               ('distress_cry',         'HIGH',     0.40),
-    'Shout':                    ('shouting',             'HIGH',     0.45),
     'Bellow':                   ('shouting',             'HIGH',     0.40),
-    'Screech':                  ('distress_scream',      'HIGH',     0.40),
     'Slap, smack':              ('physical_altercation', 'HIGH',     0.45),
     'Whack, thwack':            ('physical_altercation', 'HIGH',     0.40),
     'Smash, crash':             ('glass_break',          'HIGH',     0.40),
@@ -61,8 +56,8 @@ SENTINEL_WATCH_CLASSES: Dict[str, Tuple[str, str, float]] = {
     'Bang':                     ('impact_thud',          'MEDIUM',   0.40),
     'Slam':                     ('door_slam',            'MEDIUM',   0.55),
     'Door':                     ('door_slam',            'MEDIUM',   0.50),
-    'Vehicle':                  ('vehicle_alert',        'MEDIUM',   0.65),
-    'Crash':                    ('vehicle_crash',        'MEDIUM',   0.55),
+    'Emergency vehicle':        ('siren',                'MEDIUM',   0.70),
+    'Police car (siren)':       ('siren',                'MEDIUM',   0.65),
     'Car alarm':                ('car_alarm',            'MEDIUM',   0.65),
     'Crowd':                    ('crowd_noise',          'MEDIUM',   0.70),
     'Cheer':                    ('crowd_noise',          'MEDIUM',   0.72),
@@ -73,6 +68,17 @@ SENTINEL_WATCH_CLASSES: Dict[str, Tuple[str, str, float]] = {
     'Fire alarm':               ('fire_alarm',           'MEDIUM',   0.55),
     'Breaking, cracking':       ('structural_damage',    'MEDIUM',   0.55),
     'Creak':                    ('structural_damage',    'MEDIUM',   0.60),
+}
+
+# YAMNet classes that are pure codec/compression artifacts from WebM→WAV
+# conversion of near-silence. These must never trigger watchlist promotion
+# even if they somehow appear in the top results.
+ARTIFACT_CLASSES = {
+    'wood', 'rain', 'rustle', 'crackle', 'white noise', 'wind',
+    'raindrop', 'pour', 'trickle', 'patter', 'splinter', 'chop',
+    'rustling', 'liquid', 'tick', 'outside, rural', 'outside, urban',
+    'mouse', 'rodent', 'rain on surface', 'vehicle', 'motor vehicle', 
+    'truck', 'car', 'bus', 'train', 'rail transport', 'aircraft', 'engine',
 }
 
 SOUND_SEVERITY_MAP = {
@@ -249,8 +255,10 @@ async def classify_audio(file: UploadFile, is_live: bool = False):
     Classify uploaded audio using YAMNet with energy-masked pooling and
     watchlist promotion for transient events.
 
-    is_live=True activates trailing-5s crop so cumulative blobs don't get
-    dominated by old ambient audio.
+    is_live=True activates:
+      - Trailing crop to last 4s
+      - RMS silence gate (skips inference on quiet chunks)
+      - Artifact class filtering (blocks codec noise from triggering incidents)
     """
     global model, class_names
 
@@ -271,9 +279,23 @@ async def classify_audio(file: UploadFile, is_live: bool = False):
             max_samples = int(4.0 * sr)
             if len(waveform) > max_samples:
                 waveform = waveform[-max_samples:]
-                print(f"✂️ Cropped to trailing 5s: {len(waveform)} samples")
+                print(f"✂️ Cropped to trailing 4s: {len(waveform)} samples")
 
         waveform = prepare_waveform(waveform, sr, target_sr=16000)
+
+        # ── Silence gate ──────────────────────────────────────────────────────
+        # WebM→WAV conversion of near-silence produces codec artifacts (Wood,
+        # Rain, Crackle etc.) that fool YAMNet. If RMS energy is below threshold
+        # there is no real sound event — skip inference entirely.
+        rms = float(np.sqrt(np.mean(waveform ** 2)))
+        print(f"🔊 RMS energy: {rms:.4f}")
+        if is_live and rms < 0.02:
+            print("🔇 Silent chunk — skipping inference")
+            return {
+                'top_class': 'silence', 'confidence': 0.0, 'severity': 'LOW',
+                'all_classes': [], 'watchlist': [], 'recommended_response': [],
+                'model': 'YAMNet', 'filename': file.filename,
+            }
 
         print("🚀 Running YAMNet inference...")
         wf                              = tf.convert_to_tensor(waveform, dtype=tf.float32)
@@ -311,6 +333,10 @@ async def classify_audio(file: UploadFile, is_live: bool = False):
                 'threshold':      threshold,
             })
 
+        # ── Watchlist promotion ───────────────────────────────────────────────
+        # Uses frame-level maxima so a single spike from a gunshot or scream
+        # is caught even if the pooled average is diluted by ambient frames.
+        # Artifact classes are excluded so codec noise never promotes.
         watch_evidence = []
         for yamnet_key, (sentinel_label, severity, threshold) in SENTINEL_WATCH_CLASSES.items():
             s = best_frame_score_for_label(scores, class_names, yamnet_key)
@@ -325,17 +351,25 @@ async def classify_audio(file: UploadFile, is_live: bool = False):
                                        key=lambda x: x['frame_max_confidence'],
                                        reverse=True)
 
-        # Always use the highest-severity watchlist hit if ANY watch class fired,
-        # regardless of whether a higher-confidence ambient class (Speech, Fireworks,
-        # Animal etc.) ranked above it in the pooled scores.
-        # Priority: CRITICAL > HIGH > MEDIUM > LOW > fallback to pooled top result.
+        # Priority: highest severity first, then highest confidence within same severity.
+        # Artifact classes are blocked from promotion regardless of confidence.
         SEVERITY_RANK = {'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1}
 
         best_watch = None
         for ev in watch_evidence_sorted:
-            if ev['frame_max_confidence'] >= ev['threshold']:
-                if best_watch is None or SEVERITY_RANK.get(ev['severity'], 0) > SEVERITY_RANK.get(best_watch['severity'], 0):
-                    best_watch = ev
+            # Skip if below threshold
+            if ev['frame_max_confidence'] < ev['threshold']:
+                continue
+            # Skip if this yamnet_key is a known codec artifact
+            if any(art in ev['yamnet_key'].lower() for art in ARTIFACT_CLASSES):
+                print(f"[ARTIFACT] Skipping {ev['yamnet_key']} @ {ev['frame_max_confidence']:.2%}")
+                continue
+            if best_watch is None or (
+                SEVERITY_RANK.get(ev['severity'], 0) > SEVERITY_RANK.get(best_watch['severity'], 0)
+                or (ev['severity'] == best_watch['severity']
+                    and ev['frame_max_confidence'] > best_watch['frame_max_confidence'])
+            ):
+                best_watch = ev
 
         if best_watch:
             top_result = {
@@ -347,7 +381,13 @@ async def classify_audio(file: UploadFile, is_live: bool = False):
                 'via':            'watchlist_priority',
             }
         else:
-            top_result = results[0] if results else {
+            # No watchlist hit — fall back to pooled top result but only if
+            # it isn't an artifact class. If top result is an artifact, return LOW.
+            fallback = results[0] if results else None
+            if fallback and any(art in fallback['class'].lower() for art in ARTIFACT_CLASSES):
+                print(f"[ARTIFACT] Top result {fallback['class']} is artifact — returning LOW")
+                fallback = None
+            top_result = fallback or {
                 'class': 'unknown', 'confidence': 0.0,
                 'sentinel_label': 'unknown', 'severity': 'LOW', 'threshold': 0.5,
             }

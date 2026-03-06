@@ -70,60 +70,63 @@ const meIcon = L.divIcon({
 // Helper component to open popup for focused incident
 function OpenIncidentPopup({ focusIncident, incidents }) {
   const map = useMap();
-  
+
   useEffect(() => {
     if (!focusIncident || !map) return;
-    
+
     // Find the incident in the incidents array
-    const incident = incidents.find(inc => 
-      inc.id === focusIncident.id || 
+    const incident = incidents.find(inc =>
+      inc.id === focusIncident.id ||
       (focusIncident.id && inc.id === focusIncident.id)
     );
-    
-    if (!incident) return;
-    
-    // Get coordinates
-    const lat = incident.location?.lat || incident.lat;
-    const lng = incident.location?.lng || incident.lng;
-    
-    if (!lat || !lng) return;
+
+    // Use target (incident or focusIncident) for coordinates
+    const target = incident || focusIncident;
+    const lat = target.location?.lat || target.lat;
+    const lng = target.location?.lng || target.lng;
+
+    if (!lat || !lng) {
+      console.warn('[Map] OpenIncidentPopup: invalid coordinates', { lat, lng });
+      return;
+    }
     
     // Small delay to ensure map is ready
     setTimeout(() => {
-      const severityColor = getSeverityColor(incident.severity);
-      const severityIcon = getSeverityIcon(incident.severity);
-      
+      // Use target (incident or focusIncident) for all properties
+      const severityColor = getSeverityColor(target.severity);
+      const severityIcon = getSeverityIcon(target.severity);
+
       // Open popup at the incident location
       const popupContent = `
         <div style="min-width: 200px; padding: 8px;">
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
             <span style="font-size: 20px;">${severityIcon}</span>
             <strong style="color: ${severityColor}; font-size: 14px;">
-              ${incident.sound_type || incident.type}
+              ${target.sound_type || target.type || 'Unknown'}
             </strong>
           </div>
           <div style="margin-bottom: 4px;">
             <span style="color: #64748b; font-size: 12px;">Severity:</span>
             <span style="color: ${severityColor}; font-weight: 600; margin-left: 4px; font-size: 12px;">
-              ${incident.severity}
+              ${target.severity || 'Unknown'}
             </span>
           </div>
           <div style="margin-bottom: 4px;">
             <span style="color: #64748b; font-size: 12px;">Confidence:</span>
             <span style="color: #1e293b; margin-left: 4px; font-size: 12px;">
-              ${Math.round((incident.confidence || 0) * 100)}%
+              ${Math.round((target.confidence || 0) * 100)}%
             </span>
           </div>
-          ${incident.location?.description ? `
+          ${target.location?.description ? `
             <div style="margin-bottom: 4px;">
               <span style="color: #64748b; font-size: 12px;">📍</span>
               <span style="color: #1e293b; margin-left: 4px; font-size: 12px;">
-                ${incident.location.description}
+                ${target.location.description}
               </span>
             </div>
           ` : ''}
           <div style="margin-top: 8px; font-size: 11px; color: #94a3b8;">
-            👥 ${incident.volunteers_notified || 0} notified
+            👥 ${target.volunteers_notified || 0} notified
           </div>
         </div>
       `;
@@ -166,21 +169,16 @@ function FlyToIncident({ focusIncident, zoom = 16 }) {
   const hasFlownRef = useRef(false);
 
   useEffect(() => {
-    console.log('🗺️ FlyToIncident called with:', focusIncident);
-    
-    if (!focusIncident || hasFlownRef.current) return;
+    if (!focusIncident || !map || hasFlownRef.current) return;
 
     const lat = focusIncident.location?.lat || focusIncident.lat;
     const lng = focusIncident.location?.lng || focusIncident.lng;
-    
-    console.log('🗺️ Extracted coordinates:', lat, lng);
 
-    if (typeof lat === "number" && typeof lng === "number") {
+    if (typeof lat === "number" && typeof lng === "number" && !isNaN(lat) && !isNaN(lng)) {
       hasFlownRef.current = true;
-      console.log('🗺️ Flying to:', [lat, lng], 'zoom:', zoom);
       map.flyTo([lat, lng], zoom, { duration: 0.8 });
     } else {
-      console.warn('🗺️ Invalid coordinates:', { lat, lng });
+      console.warn('🗺️ Invalid coordinates:', { lat, lng, focusIncident });
     }
   }, [focusIncident, map, zoom]);
 

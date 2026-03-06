@@ -125,55 +125,30 @@ export default function ClassifyTool() {
       console.log('  - severity:', incidentData.severity);
       console.log('  - confidence:', incidentData.confidence);
 
-      // Send to backend for classification - incident will be created automatically
-      try {
-        const response = await fetch(`${API_URL}/classify`, {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.detail || `Server error: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('📊 Classification result:', data);
-        console.log('✅ Incident created automatically:', data.incident_id);
-        
-        // Update with incident ID from backend
-        if (data.incident_id) {
-          incidentData.id = data.incident_id;
-          setCreatedIncidentId(data.incident_id);
-        }
-
-        setCreatedIncidentData(incidentData);
-        setIncidentCreated(true);
-
-        console.log('✅ Stored incident data for navigation:');
-        console.log('  - ID:', incidentData.id);
-        console.log('  - sound_type:', incidentData.sound_type);
-        console.log('  - severity:', incidentData.severity);
-        console.log('  - location:', incidentData.location);
-        console.log('  - Full object:', incidentData);
-
-        // Set classification for display
-        setClassification({
-          top_class: data.top_class || data.label || topClass,
-          confidence: data.confidence || incidentData.confidence,
-          top5: data.all_classes || data.top5 || [],
-          severity: data.severity || incidentData.severity,
-          recommended_response: data.recommended_response || incidentData.recommended_response
-        });
-
-        setIncidentCreated(true);
-
-      } catch (err) {
-        console.error('Classification error:', err);
-        setError(`Classification failed: ${err.message}. Make sure backend is running.`);
-      } finally {
-        setIsUploading(false);
+      // Update with incident ID from backend if available
+      if (data.incident_id) {
+        incidentData.id = data.incident_id;
+        setCreatedIncidentId(data.incident_id);
       }
+
+      setCreatedIncidentData(incidentData);
+      setIncidentCreated(true);
+
+      console.log('✅ Stored incident data for navigation:');
+      console.log('  - ID:', incidentData.id);
+      console.log('  - sound_type:', incidentData.sound_type);
+      console.log('  - severity:', incidentData.severity);
+      console.log('  - location:', incidentData.location);
+      console.log('  - Full object:', incidentData);
+
+      // Set classification for display
+      setClassification({
+        top_class: data.top_class || data.label || topClass,
+        confidence: data.confidence || incidentData.confidence,
+        top5: data.all_classes || data.top5 || [],
+        severity: data.severity || incidentData.severity,
+        recommended_response: data.recommended_response || incidentData.recommended_response
+      });
 
     } catch (err) {
       console.error('Classification error:', err);
@@ -212,28 +187,12 @@ export default function ClassifyTool() {
   };
 
   const handleViewOnDashboard = () => {
-    console.log('');
-    console.log('🔴 ==============================================');
-    console.log('🔴 VIEW ON DASHBOARD BUTTON CLICKED');
-    console.log('🔴 ==============================================');
-    console.log('🔴 createdIncidentId:', createdIncidentId);
-    console.log('🔴 createdIncidentData:', JSON.stringify(createdIncidentData, null, 2));
-    console.log('🔴 Location data:', createdIncidentData?.location);
-    console.log('🔴 Location lat:', createdIncidentData?.location?.lat);
-    console.log('🔴 Location lng:', createdIncidentData?.location?.lng);
-    console.log('');
-
-    // Navigate to dashboard with full incident object and ID
     navigate('/', {
       state: {
         focusIncidentId: createdIncidentId,
         focusIncident: createdIncidentData
       }
     });
-
-    console.log('🟢 Navigation initiated with state');
-    console.log('🟢 Check Dashboard console logs for received data');
-    console.log('');
   };
 
   return (

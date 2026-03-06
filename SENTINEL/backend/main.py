@@ -180,6 +180,14 @@ async def websocket_endpoint(websocket: WebSocket):
 async def _build_and_broadcast_incident(result: dict) -> dict | None:
     severity   = (result.get("severity") or "LOW").upper()
     sound_type = result.get("top_class", "unknown")
+# Normalise vehicle family to one debounce key so vehicle/vehicle_alert/
+# vehicle_crash all share the same cooldown bucket
+    DEBOUNCE_FAMILY = {
+        'vehicle_alert': 'vehicle_family',
+        'vehicle_crash': 'vehicle_family',
+        'car_alarm':     'vehicle_family',
+    }
+    debounce_key = DEBOUNCE_FAMILY.get(sound_type, sound_type)
 
     # FIX #17: Only broadcast MEDIUM and above — LOW is LOG_ONLY per spec.
     if severity not in BROADCAST_SEVERITIES:
@@ -188,12 +196,12 @@ async def _build_and_broadcast_incident(result: dict) -> dict | None:
 
     # FIX #18: Debounce — skip if this sound_type was broadcast recently.
     now = time.time()
-    last = _last_broadcast.get(sound_type, 0)
+    last = _last_broadcast.get(debounce_key, 0)
     if now - last < DEBOUNCE_SECONDS:
         remaining = round(DEBOUNCE_SECONDS - (now - last), 1)
         print(f"[DEBOUNCE] {sound_type} suppressed — {remaining}s remaining")
         return None
-    _last_broadcast[sound_type] = now
+    _last_broadcast[debounce_key] = now
 
     # FIX #19: uuid4 instead of deprecated asyncio.get_event_loop().time()
     incident_id = f"inc_{uuid4().hex[:8]}"

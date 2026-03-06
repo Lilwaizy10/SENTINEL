@@ -101,12 +101,73 @@ export default function Dashboard() {
   const displayStats = stats.incidents_today > 0 ? stats : mockStats;
   // displayIncidents is managed by useState above — used directly in JSX
 
-  const focusIncidentForMap = React.useMemo(() => {
-    if (location.state?.focusIncident) return location.state.focusIncident;
-    const focusId = location.state?.focusIncidentId;
-    if (focusId) return displayIncidents.find(inc => String(inc.id) === String(focusId)) || null;
-    return null;
-  }, [location.state, displayIncidents]);
+  // Extract focusIncident from navigation state with validation
+  const focusIncidentFromNav = React.useMemo(() => {
+    if (!location.state?.focusIncident) {
+      return null;
+    }
+    
+    const fi = location.state.focusIncident;
+    
+    // Validate it has minimum required fields
+    if (!fi.id) {
+      console.warn('[Dashboard] focusIncident missing id:', fi);
+      return null;
+    }
+    
+    // Ensure it has all required fields for rendering
+    const validated = {
+      id: fi.id,
+      sound_type: fi.sound_type || fi.type || 'Unknown',
+      severity: fi.severity || 'LOW',
+      status: fi.status || 'OPEN',
+      confidence: fi.confidence || 0,
+      volunteers_notified: fi.volunteers_notified || 0,
+      timestamp: fi.timestamp || new Date().toISOString(),
+      location: fi.location?.lat && fi.location?.lng ? fi.location : {
+        lat: fi.lat || 1.3521,
+        lng: fi.lng || 103.8198,
+        description: fi.location?.description || 'Unknown location',
+        zone: fi.location?.zone || 'Unknown',
+      },
+      // Preserve all other properties
+      ...fi,
+    };
+    
+    return validated;
+  }, [location.state]);
+
+  const focusIncidentForMap = focusIncidentFromNav || (
+    location.state?.focusIncidentId
+      ? displayIncidents.find(inc => String(inc.id) === String(location.state.focusIncidentId)) || null
+      : null
+  );
+
+  // Inject classifier incident into feed immediately — don't wait for WebSocket
+  useEffect(() => {
+    if (focusIncidentForMap && focusIncidentForMap.id) {
+      setDisplayIncidents(prev => {
+        // Check if incident already exists in the feed
+        if (prev.find(i => i.id === focusIncidentForMap.id)) return prev;
+        // Ensure incident has required fields
+        const safeIncident = {
+          ...focusIncidentForMap,
+          status: focusIncidentForMap.status || 'OPEN',
+          volunteers_notified: focusIncidentForMap.volunteers_notified || 0,
+        };
+        return [safeIncident, ...prev];
+      });
+      setSelectedIncident(focusIncidentForMap);
+    }
+  }, [focusIncidentForMap]);
+
+  // Clear location.state after processing (so refresh doesn't re-inject)
+  useEffect(() => {
+    if (location.state?.focusIncident) {
+      // Clear the state after processing so a page refresh doesn't re-inject
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
 
   // Critical flash
   useEffect(() => {
