@@ -135,6 +135,7 @@ def prepare_waveform(waveform: np.ndarray, sr: int, target_sr: int = 16000) -> n
 
     waveform = np.nan_to_num(waveform, nan=0.0, posinf=0.0, neginf=0.0)
 
+    # ADD THIS — boost quiet mic input before peak normalization
     peak = float(np.max(np.abs(waveform))) if waveform.size else 0.0
     if peak > 0.05:
         waveform = waveform / peak
@@ -287,15 +288,7 @@ async def classify_audio(file: UploadFile, is_live: bool = False):
         # WebM→WAV conversion of near-silence produces codec artifacts (Wood,
         # Rain, Crackle etc.) that fool YAMNet. If RMS energy is below threshold
         # there is no real sound event — skip inference entirely.
-        rms = float(np.sqrt(np.mean(waveform ** 2)))
-        print(f"🔊 RMS energy: {rms:.4f}")
-        if is_live and rms < 0.15:
-            print("🔇 Silent chunk — skipping inference")
-            return {
-                'top_class': 'silence', 'confidence': 0.0, 'severity': 'LOW',
-                'all_classes': [], 'watchlist': [], 'recommended_response': [],
-                'model': 'YAMNet', 'filename': file.filename,
-            }
+        
 
         print("🚀 Running YAMNet inference...")
         wf                              = tf.convert_to_tensor(waveform, dtype=tf.float32)
@@ -363,6 +356,9 @@ async def classify_audio(file: UploadFile, is_live: bool = False):
             # Skip if this yamnet_key is a known codec artifact
             if any(art in ev['yamnet_key'].lower() for art in ARTIFACT_CLASSES):
                 print(f"[ARTIFACT] Skipping {ev['yamnet_key']} @ {ev['frame_max_confidence']:.2%}")
+                continue
+            if ev['severity'] == 'MEDIUM' and ev['frame_max_confidence'] < 0.70:
+                print(f"[WEAK] Skipping MEDIUM {ev['yamnet_key']} @ {ev['frame_max_confidence']:.2%}")
                 continue
             if best_watch is None or (
                 SEVERITY_RANK.get(ev['severity'], 0) > SEVERITY_RANK.get(best_watch['severity'], 0)

@@ -79,9 +79,14 @@ model_loaded = False
 # 1-second chunk. A sound_type is suppressed if it was broadcast within the
 # last DEBOUNCE_SECONDS seconds.
 _last_broadcast: dict = {}
-DEBOUNCE_SECONDS = 15
+DEBOUNCE_SECONDS_BY_SEVERITY = {
+    'CRITICAL': 10,
+    'HIGH':     8,
+    'MEDIUM':   20,  # MEDIUM (vehicle etc.) suppressed longer
+}
+DEBOUNCE_SECONDS = max(DEBOUNCE_SECONDS_BY_SEVERITY.values())
 _last_any_broadcast: float = 0.0   # global cooldown across all sound types
-GLOBAL_COOLDOWN_SECONDS = 10
+GLOBAL_COOLDOWN_SECONDS = 20
 
 # FIX #17: Only broadcast MEDIUM / HIGH / CRITICAL to the alert feed.
 # LOW (car_alarm etc.) and unrecognised classes are logged only, matching
@@ -207,8 +212,9 @@ async def _build_and_broadcast_incident(result: dict) -> dict | None:
     debounce_key = DEBOUNCE_FAMILY.get(sound_type, sound_type)
 
     last = _last_broadcast.get(debounce_key, 0)
-    if now - last < DEBOUNCE_SECONDS:
-        remaining = round(DEBOUNCE_SECONDS - (now - last), 1)
+    debounce = DEBOUNCE_SECONDS_BY_SEVERITY.get(severity, 15)
+    if now - last < debounce:
+        remaining = round(debounce - (now - last), 1)
         print(f"[DEBOUNCE] {sound_type} suppressed — {remaining}s remaining")
         return None
 
