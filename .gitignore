@@ -58,3 +58,7 @@ build/
 *.tmp
 *.cache
 Thumbs.db
+
+# Generated local TLS files
+/SENTINEL/backend/certs/cert.pem
+/SENTINEL/backend/certs/key.pem
